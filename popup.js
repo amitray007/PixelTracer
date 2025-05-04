@@ -33,6 +33,20 @@ async function getCurrentTab() {
   return tab;
 }
 
+// Setup reports tab events
+function setupReportsTabEvents() {
+  const reportsTabButtons = document.querySelectorAll('#reports-window .tab-button');
+  console.log('Setting up reports tab events for', reportsTabButtons.length, 'buttons');
+  
+  reportsTabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const tabName = button.getAttribute('data-tab');
+      console.log('Reports tab clicked:', tabName);
+      setActiveTab(tabName);
+    });
+  });
+}
+
 // Initialize the popup
 async function initPopup() {
   console.log('Initializing popup');
@@ -46,6 +60,10 @@ async function initPopup() {
     
     // Setup all button event listeners
     setupEventListeners();
+    
+    // Setup tab buttons in both windows
+    setupDetailTabEvents();
+    setupReportsTabEvents();
     
     // Load settings from storage
     chrome.storage.local.get(['pixelTracerSettings'], (result) => {
@@ -618,6 +636,18 @@ function showDetailWindow(providerName, providerId, request) {
   // Set active tab to General
   setActiveTab('general');
   
+  // Setup tab button click handlers
+  const detailTabButtons = detailWindow.querySelectorAll('.tab-button');
+  detailTabButtons.forEach(button => {
+    // Remove any existing listeners to prevent duplicates
+    const newButton = button.cloneNode(true);
+    button.parentNode.replaceChild(newButton, button);
+    newButton.addEventListener('click', () => {
+      const tabName = newButton.getAttribute('data-tab');
+      setActiveTab(tabName);
+    });
+  });
+  
   // Fill tab content
   fillGeneralTab(providerId, request);
   fillEventTab(providerId, request);
@@ -825,8 +855,19 @@ function fillPayloadTab(request) {
  * @param {string} tabName - The tab to activate
  */
 function setActiveTab(tabName) {
-  // Update tab buttons
-  tabButtons.forEach(button => {
+  // Determine which window the tab belongs to
+  const isDetailTab = ['general', 'event', 'params', 'headers', 'payload'].includes(tabName);
+  const containerSelector = isDetailTab ? '#detail-window' : '#reports-window';
+  
+  console.log(`Setting active tab to ${tabName} in ${containerSelector}`);
+  
+  // Update tab buttons in the correct container
+  const container = document.querySelector(containerSelector);
+  const buttons = container.querySelectorAll('.tab-button');
+  const panes = container.querySelectorAll('.tab-pane');
+  
+  // Update buttons
+  buttons.forEach(button => {
     if (button.dataset.tab === tabName) {
       button.classList.add('active');
     } else {
@@ -835,7 +876,7 @@ function setActiveTab(tabName) {
   });
   
   // Update tab panes
-  tabPanes.forEach(pane => {
+  panes.forEach(pane => {
     if (pane.id === `${tabName}-tab`) {
       pane.classList.add('active');
     } else {
@@ -1117,14 +1158,22 @@ function showReports() {
   // Initialize reports content
   generateReports();
   
-  // Set up tab switching for reports
+  // Setup fresh tab event listeners
   const reportsTabs = reportsWindow.querySelectorAll('.tab-button');
-  reportsTabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const tabName = tab.getAttribute('data-tab');
-      setReportsActiveTab(tabName);
+  reportsTabs.forEach(button => {
+    // Remove any existing listeners to prevent duplicates
+    const newButton = button.cloneNode(true);
+    button.parentNode.replaceChild(newButton, button);
+    
+    // Add fresh click listener
+    newButton.addEventListener('click', () => {
+      const tabName = newButton.getAttribute('data-tab');
+      setActiveTab(tabName);
     });
   });
+  
+  // Set the initial active tab
+  setActiveTab('summary');
 }
 
 /**
@@ -1133,32 +1182,6 @@ function showReports() {
 function closeReports() {
   reportsWindow.classList.remove('visible');
   detailOverlay.classList.remove('visible');
-}
-
-/**
- * Set the active tab in the reports window
- * @param {string} tabName - The tab to activate
- */
-function setReportsActiveTab(tabName) {
-  // Update tab buttons
-  const tabButtons = reportsWindow.querySelectorAll('.tab-button');
-  tabButtons.forEach(button => {
-    if (button.dataset.tab === tabName) {
-      button.classList.add('active');
-    } else {
-      button.classList.remove('active');
-    }
-  });
-  
-  // Update tab panes
-  const tabPanes = reportsWindow.querySelectorAll('.tab-pane');
-  tabPanes.forEach(pane => {
-    if (pane.id === `${tabName}-tab`) {
-      pane.classList.add('active');
-    } else {
-      pane.classList.remove('active');
-    }
-  });
 }
 
 /**
@@ -1648,6 +1671,20 @@ function formatProviderNameFromId(providerId) {
     .split('-')
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
+}
+
+// Setup tab events for detail window
+function setupDetailTabEvents() {
+  const detailTabButtons = document.querySelectorAll('#detail-window .tab-button');
+  console.log('Setting up detail tab events for', detailTabButtons.length, 'buttons');
+  
+  detailTabButtons.forEach(button => {
+    button.addEventListener('click', () => {
+      const tabName = button.getAttribute('data-tab');
+      console.log('Tab clicked:', tabName);
+      setActiveTab(tabName);
+    });
+  });
 }
 
 // Add CSS for the loading spinner
