@@ -25,6 +25,9 @@ let filterPreferences = {
   viewMode: 'chronological'
 };
 
+// Store for tracking which provider groups are collapsed
+let collapsedProviders = {};
+
 // Initialize on content script load
 init();
 
@@ -38,12 +41,27 @@ function init() {
   // Check if Live View was previously enabled for this domain
   const hostname = window.location.hostname;
   
+  // Load saved collapsed providers state
+  try {
+    const key = `pixeltracer_collapsed_${hostname}`;
+    const savedState = localStorage.getItem(key);
+    if (savedState) {
+      collapsedProviders = JSON.parse(savedState);
+    }
+  } catch (e) {
+    // If there's an error, just use the default empty object
+    collapsedProviders = {};
+  }
+  
   // Get tracking providers data
   chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId: 'all' }, (response) => {
     if (response && response.allProviders) {
       trackingProvidersData = response.allProviders;
     }
   });
+  
+  // Reset tracking data on initialization to avoid stale data
+  currentTabRequests = [];
   
   // Load theme preference first
   chrome.storage.local.get(['pixelTracerTheme'], (result) => {
@@ -116,7 +134,6 @@ function init() {
       
       // Notify background script about navigation to ensure data is cleared there too
       if (currentTabId) {
-        const hostname = new URL(currentUrl).hostname;
         chrome.runtime.sendMessage({
           action: 'dataCleared',
           tabId: currentTabId
@@ -136,6 +153,9 @@ function init() {
       loadTrackingData();
     }
   });
+  
+  // Save collapsed provider state when the page is unloaded
+  window.addEventListener('beforeunload', saveCollapsedProviders);
 }
 
 /**
@@ -173,7 +193,7 @@ function loadTrackingData() {
   
   const hostname = new URL(currentUrl || window.location.href).hostname;
   
-  // Reset the requests array to prevent accumulation
+  // Reset the requests array to prevent accumulation (but preserve collapsed state)
   currentTabRequests = [];
   
   // Make sure requestsContainer is initialized if Live View is active
@@ -391,7 +411,18 @@ function displayChronologicalRequests(requests) {
  * @param {Array} requests - The filtered requests to display
  */
 function displayGroupedRequests(requests) {
-  // Clear existing requests first
+  // Clear existing requests first, but remember which providers were collapsed
+  if (requestsContainer) {
+    // Save collapsed state before clearing
+    const providerGroups = requestsContainer.querySelectorAll('.pixeltracer-provider-group');
+    providerGroups.forEach(group => {
+      const providerId = group.dataset.providerId;
+      if (providerId) {
+        collapsedProviders[providerId] = group.classList.contains('collapsed');
+      }
+    });
+  }
+  
   requestsContainer.innerHTML = '';
   requestsList = [];
   
@@ -419,12 +450,27 @@ function displayGroupedRequests(requests) {
     // Create provider group container
     const groupContainer = document.createElement('div');
     groupContainer.className = 'pixeltracer-provider-group';
+    groupContainer.dataset.providerId = providerId;
     
-    // Create header for the group
+    // Restore collapsed state if it was previously set
+    if (collapsedProviders[providerId]) {
+      groupContainer.classList.add('collapsed');
+    }
+    
+    // Create header for the group with toggle indicator
     const header = document.createElement('div');
     header.className = 'pixeltracer-provider-header';
+    
+    // Set the correct chevron icon based on collapsed state
+    const chevronClass = collapsedProviders[providerId] ? 'fa-chevron-right' : 'fa-chevron-down';
+    
     header.innerHTML = `
-      <span>${providerName}</span>
+      <div class="pixeltracer-provider-header-left">
+        <span class="pixeltracer-toggle-indicator">
+          <i class="fas ${chevronClass}"></i>
+        </span>
+        <span class="pixeltracer-provider-name">${providerName}</span>
+      </div>
       <span class="pixeltracer-provider-count">${providerRequests.length}</span>
     `;
     
@@ -448,6 +494,40 @@ function displayGroupedRequests(requests) {
     
     // Add to main container
     document.getElementById('pixeltracer-requests-container').appendChild(groupContainer);
+    
+    // Add click handler to toggle visibility of request details
+    header.addEventListener('click', (e) => {
+      // Don't trigger if clicking on a request item
+      if (e.target.closest('.pixeltracer-request-item')) {
+        return;
+      }
+      
+      // Toggle expanded/collapsed state
+      groupContainer.classList.toggle('collapsed');
+      
+      // Update the toggle indicator
+      const indicator = header.querySelector('.pixeltracer-toggle-indicator i');
+      if (indicator) {
+        if (groupContainer.classList.contains('collapsed')) {
+          indicator.className = 'fas fa-chevron-right';
+          // Save collapsed state
+          collapsedProviders[providerId] = true;
+        } else {
+          indicator.className = 'fas fa-chevron-down';
+          // Save expanded state
+          collapsedProviders[providerId] = false;
+        }
+        
+        // Save to localStorage
+        try {
+          const hostname = window.location.hostname;
+          const key = `pixeltracer_collapsed_${hostname}`;
+          localStorage.setItem(key, JSON.stringify(collapsedProviders));
+        } catch (e) {
+          // Ignore storage errors
+        }
+      }
+    });
   });
 }
 
@@ -519,22 +599,43 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'trackingDataCleared') {
     // Tracking data was cleared by the popup
     currentTabRequests = [];
+    
+    // Keep collapsedProviders state intact - just refresh the data display
     refreshRequestList();
     updateStats();
     sendResponse({ success: true });
   } else if (message.action === 'pageRefreshed') {
     // Handle page refresh event from background script
     
-    // Clear our local data for the refreshed hostname
-    const hostname = message.hostname;
-    if (hostname) {
-      // Filter out requests from the refreshed hostname
-      currentTabRequests = currentTabRequests.filter(req => req.host !== hostname);
+    // Perform a complete reset of tracking data
+    if (message.completeReset) {
+      // Reset tracking data but preserve collapsed providers state
+      currentTabRequests = [];
       
       // Update UI
       if (liveViewEnabled && liveViewEl) {
         updateStats();
         refreshRequestList();
+        
+        // Show empty state
+        const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+        if (emptyState) {
+          emptyState.textContent = "Waiting for tracking requests...";
+          emptyState.style.display = 'flex';
+        }
+      }
+    } else {
+      // Fallback to hostname-based filtering if completeReset is not specified
+      const hostname = message.hostname;
+      if (hostname) {
+        // Filter out requests from the refreshed hostname
+        currentTabRequests = currentTabRequests.filter(req => req.host !== hostname);
+        
+        // Update UI
+        if (liveViewEnabled && liveViewEl) {
+          updateStats();
+          refreshRequestList();
+        }
       }
     }
     
@@ -542,6 +643,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'forceRefreshLiveView') {
     // Force a complete refresh of the Live View
     if (liveViewEnabled) {
+      // Reset the current tracking data but preserve collapsed state
+      currentTabRequests = [];
+      
       // Force reload data
       loadTrackingData();
     }
@@ -1888,4 +1992,34 @@ function onPageNavigation() {
     if (requestsContainer) {
         requestsContainer.innerHTML = '';
     }
-} 
+}
+
+/**
+ * Save collapsed provider state to localStorage
+ */
+function saveCollapsedProviders() {
+  try {
+    const hostname = window.location.hostname;
+    const key = `pixeltracer_collapsed_${hostname}`;
+    localStorage.setItem(key, JSON.stringify(collapsedProviders));
+  } catch (e) {
+    // Ignore storage errors
+  }
+}
+
+/**
+ * Load collapsed provider state from localStorage
+ */
+function loadCollapsedProviders() {
+  try {
+    const hostname = window.location.hostname;
+    const key = `pixeltracer_collapsed_${hostname}`;
+    const savedState = localStorage.getItem(key);
+    if (savedState) {
+      collapsedProviders = JSON.parse(savedState);
+    }
+  } catch (e) {
+    // If there's an error, just use the default empty object
+    collapsedProviders = {};
+  }
+}

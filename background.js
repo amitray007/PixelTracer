@@ -408,6 +408,7 @@ const trackingDataStore = {
   clearTabData(tabId) {
     if (this.tabs[tabId]) {
       delete this.tabs[tabId];
+      // Immediately save changes to storage to ensure persistence
       this.saveToStorage();
       return true;
     }
@@ -418,12 +419,21 @@ const trackingDataStore = {
   clearTabDataForHostname(tabId, hostname) {
     if (!this.tabs[tabId]) return false;
     
-    // Completely reset the tab data for this hostname to ensure clean start
+    // Filter out requests from the specified hostname
     this.tabs[tabId] = this.tabs[tabId].filter(req => req.host !== hostname);
     
-    // Save changes
+    // Save changes immediately
     this.saveToStorage();
     return true;
+  },
+  
+  // Handle data cleared event
+  handleDataCleared(tabId) {
+    if (tabId) {
+      this.clearTabData(tabId);
+      return true;
+    }
+    return false;
   },
   
   // Clear all tracking data
@@ -496,18 +506,17 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       // Get the hostname
       const hostname = new URL(tab.url).hostname;
       
-      // Clear data for this hostname in this tab
-      if (hostname) {
-        const cleared = trackingDataStore.clearTabDataForHostname(tabId, hostname);
-        
-        // Notify content script if it's already loaded
-        chrome.tabs.sendMessage(tabId, { 
-          action: 'pageRefreshed',
-          hostname: hostname
-        }).catch(() => {
-          // Ignore errors - content script may not be loaded yet
-        });
-      }
+      // Clear data for this tab completely on refresh/navigation
+      trackingDataStore.clearTabData(tabId);
+      
+      // Notify content script if it's already loaded
+      chrome.tabs.sendMessage(tabId, { 
+        action: 'pageRefreshed',
+        hostname: hostname,
+        completeReset: true
+      }).catch(() => {
+        // Ignore errors - content script may not be loaded yet
+      });
     } catch (e) {
       // Invalid URL or other error, ignore
     }
@@ -644,13 +653,18 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     const tabId = message.tabId;
     
     if (tabId) {
-      // Clear data in our store
-      trackingDataStore.clearTabData(tabId);
+      // Use the new helper method to clear tab data
+      const cleared = trackingDataStore.handleDataCleared(tabId);
       
       // Notify content script
-      chrome.tabs.sendMessage(tabId, { action: 'trackingDataCleared' });
+      chrome.tabs.sendMessage(tabId, { 
+        action: 'trackingDataCleared',
+        complete: true
+      }).catch(() => {
+        // Ignore errors - content script may not be ready
+      });
       
-      sendResponse({ success: true });
+      sendResponse({ success: cleared });
     } else {
       sendResponse({ success: false, error: 'Invalid tab ID' });
     }
