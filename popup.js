@@ -240,8 +240,8 @@ function loadTrackingData(tabId) {
   uniqueProvidersElement.textContent = "...";
   
   // Add a loading indicator to the containers
-  providersContainer.innerHTML = '<div class="loading-spinner">Loading data...</div>';
-  requestsContainer.innerHTML = '<div class="loading-spinner">Loading data...</div>';
+  providersContainer.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i>Loading data...</div>';
+  requestsContainer.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i>Loading data...</div>';
   
   // Get tracking data from the background page
   chrome.runtime.sendMessage({
@@ -295,13 +295,13 @@ function loadTrackingData(tabId) {
   });
 }
 
-// Handle data loading errors
+// Function to handle error loading data
 function handleDataLoadError() {
-  // Show error state
+  console.error('Failed to load tracking data');
   totalRequestsElement.textContent = "0";
   uniqueProvidersElement.textContent = "0";
-  providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>Could not load tracking data. Try refreshing the page.</div>';
-  requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>Could not load tracking data. Try refreshing the page.</div>';
+  providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
+  requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
 }
 
 // Retry loading data once
@@ -332,8 +332,8 @@ function retryLoadingData(tabId, hostname) {
     
     if (currentTabRequests.length === 0) {
       // Still no data, show proper empty state
-      providersContainer.innerHTML = '<div class="empty-state">No tracking providers detected yet</div>';
-      requestsContainer.innerHTML = '<div class="empty-state">No tracking requests detected yet</div>';
+      providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
+      requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
     } else {
       // Render the data
       renderProviders(uniqueProviders);
@@ -347,7 +347,7 @@ function renderProviders(uniqueProviders) {
   providersContainer.innerHTML = '';
   
   if (uniqueProviders.size === 0) {
-    providersContainer.innerHTML = '<div class="empty-state">No tracking providers detected yet</div>';
+    providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
     return;
   }
   
@@ -490,7 +490,7 @@ function renderRequests(requests) {
   requestsContainer.innerHTML = '';
   
   if (requests.length === 0) {
-    requestsContainer.innerHTML = '<div class="empty-state">No tracking requests detected yet</div>';
+    requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
     return;
   }
   
@@ -700,7 +700,7 @@ function fillEventTab(providerId, request) {
   const eventContent = document.getElementById('event-content');
   
   if (!provider.schema || !provider.schema.groups || !provider.schema.groups.event) {
-    eventContent.innerHTML = '<div class="empty-state">No event data available for this provider</div>';
+    eventContent.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data available for this provider</div>';
     return;
   }
   
@@ -720,7 +720,7 @@ function fillEventTab(providerId, request) {
   }
   
   if (!hasValues) {
-    eventContent.innerHTML = '<div class="empty-state">No event data found in this request</div>';
+    eventContent.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data found in this request</div>';
     return;
   }
   
@@ -739,7 +739,7 @@ function fillParamsTab(request) {
   const paramsContent = document.getElementById('params-content');
   
   if (!request.params || Object.keys(request.params).length === 0) {
-    paramsContent.innerHTML = '<div class="empty-state">No URL parameters in this request</div>';
+    paramsContent.innerHTML = '<div class="empty-state"><i class="fas fa-list-ul"></i> No URL parameters in this request</div>';
     return;
   }
   
@@ -771,7 +771,7 @@ function fillHeadersTab(request) {
   const headersContent = document.getElementById('headers-content');
   
   if (!request.headers || request.headers.length === 0) {
-    headersContent.innerHTML = '<div class="empty-state">No headers captured for this request</div>';
+    headersContent.innerHTML = '<div class="empty-state"><i class="fas fa-tags"></i> No headers captured for this request</div>';
     return;
   }
   
@@ -803,7 +803,7 @@ function fillPayloadTab(request) {
   const payloadContent = document.getElementById('payload-content');
   
   if (!request.payload) {
-    payloadContent.innerHTML = '<div class="empty-state">No payload data for this request</div>';
+    payloadContent.innerHTML = '<div class="empty-state"><i class="fas fa-code"></i> No payload data for this request</div>';
     return;
   }
   
@@ -1177,7 +1177,7 @@ function generateSummaryReport() {
   const summaryContent = document.getElementById('summary-content');
   
   if (currentTabRequests.length === 0) {
-    summaryContent.innerHTML = '<div class="empty-state">No tracking data available</div>';
+    summaryContent.innerHTML = '<div class="empty-state"><i class="fas fa-chart-pie"></i> No tracking data available</div>';
     return;
   }
   
@@ -1341,7 +1341,7 @@ function generateTimelineReport() {
   const timelineContent = document.getElementById('timeline-content');
   
   if (currentTabRequests.length === 0) {
-    timelineContent.innerHTML = '<div class="empty-state">No tracking data available</div>';
+    timelineContent.innerHTML = '<div class="empty-state"><i class="fas fa-clock"></i> No tracking data available</div>';
     return;
   }
   
@@ -1473,7 +1473,7 @@ function generatePrivacyReport() {
   const privacyContent = document.getElementById('privacy-content');
   
   if (currentTabRequests.length === 0) {
-    privacyContent.innerHTML = '<div class="empty-state">No tracking data available</div>';
+    privacyContent.innerHTML = '<div class="empty-state"><i class="fas fa-shield-alt"></i> No tracking data available</div>';
     return;
   }
   
@@ -1663,20 +1663,17 @@ document.addEventListener('DOMContentLoaded', () => {
       color: #3498db;
       font-size: 14px;
       position: relative;
-      padding-left: 24px;
+      background-color: #f9f9f9;
+      border-radius: 6px;
+      margin: 10px 0;
+      text-align: center;
+      padding: 15px;
+      flex-direction: column;
     }
     
-    .loading-spinner:before {
-      content: '';
-      box-sizing: border-box;
-      position: absolute;
-      left: 0;
-      width: 20px;
-      height: 20px;
-      border-radius: 50%;
-      border: 2px solid #ccc;
-      border-top-color: #3498db;
-      animation: spinner .6s linear infinite;
+    .loading-spinner i {
+      font-size: 24px;
+      margin-bottom: 10px;
     }
     
     @keyframes spinner {
@@ -1685,11 +1682,8 @@ document.addEventListener('DOMContentLoaded', () => {
     
     body.dark-mode .loading-spinner {
       color: #5dade2;
-    }
-    
-    body.dark-mode .loading-spinner:before {
-      border-color: #444;
-      border-top-color: #5dade2;
+      background-color: #333;
+      border: 1px solid #444;
     }
   `;
   document.head.appendChild(style);
