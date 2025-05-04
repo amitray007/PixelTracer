@@ -89,7 +89,6 @@ function init() {
     
     // Clear existing data if URL has changed
     if (newUrl !== currentUrl) {
-      console.log('Page navigation detected - clearing local tracking data');
       
       // Reset tracking data
       currentTabRequests = [];
@@ -131,7 +130,6 @@ function getCurrentTabInfo() {
       }
     });
   } catch (e) {
-    console.error('Error getting tab info:', e);
   }
 }
 
@@ -171,7 +169,6 @@ function loadTrackingData() {
   }, (response) => {
     // Check for Chrome runtime errors
     if (chrome.runtime.lastError) {
-      console.error('Error loading tracking data:', chrome.runtime.lastError);
       showLoadingError();
       return;
     }
@@ -187,7 +184,6 @@ function loadTrackingData() {
       
       // Only update UI if Live View is visible
       if (liveViewEnabled && liveViewEl) {
-        console.log('Updating Live View with', currentTabRequests.length, 'requests');
         updateStats();
         refreshRequestList();
       }
@@ -215,7 +211,6 @@ function showLoadingError() {
  * Retry loading tracking data once
  */
 function retryLoadTrackingData(hostname) {
-  console.log('Retrying to load tracking data...');
   
   // Make sure requestsContainer is initialized if needed
   if (liveViewEnabled && liveViewEl && !requestsContainer) {
@@ -228,7 +223,6 @@ function retryLoadTrackingData(hostname) {
     hostname: hostname
   }, (response) => {
     if (chrome.runtime.lastError || !response || !response.success) {
-      console.error('Retry failed:', chrome.runtime.lastError || 'Invalid response');
       showLoadingError();
       return;
     }
@@ -243,7 +237,6 @@ function retryLoadTrackingData(hostname) {
     
     // Only update UI if Live View is visible
     if (liveViewEnabled && liveViewEl) {
-      console.log('Updating Live View with', currentTabRequests.length, 'requests after retry');
       updateStats();
       refreshRequestList();
     }
@@ -440,7 +433,6 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     sendResponse({ success: true });
   } else if (message.action === 'pageRefreshed') {
     // Handle page refresh event from background script
-    console.log('Page refresh detected - clearing local tracking data');
     
     // Clear our local data for the refreshed hostname
     const hostname = message.hostname;
@@ -787,7 +779,6 @@ function makeDraggable(element, handle) {
 function fillGeneralTab(providerId, request) {
   const content = document.getElementById('pixeltracer-general-content');
   if (!content) {
-    console.error('General tab content element not found');
     return;
   }
   
@@ -870,7 +861,6 @@ function fillGeneralTabContent(provider, request, content) {
 function fillEventTab(providerId, request) {
   const content = document.getElementById('pixeltracer-event-content');
   if (!content) {
-    console.error('Event tab content element not found');
     return;
   }
   
@@ -930,7 +920,6 @@ function fillEventTab(providerId, request) {
 function fillParamsTab(request) {
   const content = document.getElementById('pixeltracer-params-content');
   if (!content) {
-    console.error('Parameters tab content element not found');
     return;
   }
   
@@ -975,7 +964,6 @@ function fillHeadersTab(request) {
   const content = document.getElementById('pixeltracer-headers-content');
   
   if (!content) {
-    console.error('Headers tab content element not found');
     // Try looking for the parent tab and add the content div if needed
     const headerTab = document.getElementById('pixeltracer-headers-tab');
     if (headerTab) {
@@ -1028,7 +1016,6 @@ function fillPayloadTab(request) {
   const content = document.getElementById('pixeltracer-payload-content');
   
   if (!content) {
-    console.error('Payload tab content element not found');
     // Try looking for the parent tab and add the content div if needed
     const payloadTab = document.getElementById('pixeltracer-payload-tab');
     if (payloadTab) {
@@ -1189,7 +1176,6 @@ function createRequestElement(request) {
   
   // Add click handler to show details
   requestEl.addEventListener('click', (e) => {
-    console.log('Request item clicked:', providerId, request);
     e.stopPropagation();
     showDetailWindow(providerName, providerId, request);
   });
@@ -1281,7 +1267,6 @@ function detectInlineTrackingScripts() {
   });
   
   if (detectedScripts.length > 0) {
-    console.log('[PixelTracer] Detected inline tracking scripts:', detectedScripts);
     chrome.runtime.sendMessage({
       action: 'inlineScriptsDetected',
       scripts: detectedScripts
@@ -1318,7 +1303,6 @@ observer.observe(document.documentElement, {
 
 // Show the detail window
 function showDetailWindow(providerName, providerId, request) {
-  console.log('Opening detail window for:', providerName, providerId);
   
   // Create the detail window if it doesn't exist yet
   if (!detailWindowEl) {
@@ -1327,7 +1311,6 @@ function showDetailWindow(providerName, providerId, request) {
   
   // Make sure we have a valid reference before proceeding
   if (!detailWindowEl) {
-    console.error('Failed to create or access detail window');
     return;
   }
   
@@ -1477,7 +1460,6 @@ function loadFilterPreferences() {
   return new Promise((resolve) => {
     chrome.storage.local.get(['pixelTracerFilterPreferences'], (result) => {
       if (result.pixelTracerFilterPreferences) {
-        console.log('Loaded filter preferences:', result.pixelTracerFilterPreferences);
         // Make sure we're not getting null or undefined values
         const savedPrefs = result.pixelTracerFilterPreferences;
         
@@ -1612,7 +1594,6 @@ function createLiveView() {
   
   // Get reference to the requests container for later use
   requestsContainer = document.getElementById('pixeltracer-requests-container');
-  console.log('Request container initialized:', requestsContainer);
   
   // Add event listeners for filters
   const filterTypeSelect = liveViewEl.querySelector('#pixeltracer-filter-type');
@@ -1660,4 +1641,18 @@ function updateLiveViewTheme() {
       detailWindowEl.classList.remove('dark-mode');
     }
   }
+}
+
+function onPageNavigation() {
+    // Clear tracking data state
+    
+    currentTabRequests = [];
+    
+    // Also clear filter state
+    clearFilterState();
+    
+    // Clear the requestsContainer
+    if (requestsContainer) {
+        requestsContainer.innerHTML = '';
+    }
 } 

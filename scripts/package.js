@@ -49,7 +49,6 @@ function copyFiles() {
           const srcFile = path.join(dirPath, file);
           const destFile = path.join(destDir, file);
           fs.copyFileSync(srcFile, destFile);
-          console.log(`Copied ${srcFile} to ${destFile}`);
         }
       }
     } else {
@@ -65,9 +64,7 @@ function copyFiles() {
         }
         
         fs.copyFileSync(srcFile, destFile);
-        console.log(`Copied ${srcFile} to ${destFile}`);
       } else {
-        console.warn(`Warning: Source file ${srcFile} does not exist`);
       }
     }
   }
@@ -83,14 +80,11 @@ function createZip() {
   
   // Listen for all archive data to be written
   output.on('close', function() {
-    console.log(`Archive created: ${DEST_ZIP}`);
-    console.log(`Total bytes: ${archive.pointer()}`);
   });
   
   // Handle warnings and errors
   archive.on('warning', function(err) {
     if (err.code === 'ENOENT') {
-      console.warn(err);
     } else {
       throw err;
     }
@@ -112,7 +106,6 @@ function createZip() {
 
 // Main function
 function main() {
-  console.log('Packaging PixelTracer extension...');
   
   ensureDirectories();
   copyFiles();

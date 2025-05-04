@@ -44,7 +44,6 @@ function copyFiles() {
           const srcFile = path.join(dirPath, file);
           const destFile = path.join(destDir, file);
           fs.copyFileSync(srcFile, destFile);
-          console.log(`Copied ${srcFile} to ${destFile}`);
         }
       }
     } else {
@@ -60,9 +59,7 @@ function copyFiles() {
         }
         
         fs.copyFileSync(srcFile, destFile);
-        console.log(`Copied ${srcFile} to ${destFile}`);
       } else {
-        console.warn(`Warning: Source file ${srcFile} does not exist`);
       }
     }
   }
@@ -70,18 +67,15 @@ function copyFiles() {
 
 // Main function
 function main() {
-  console.log('Building PixelTracer extension...');
   
   // Clean old build
   if (fs.existsSync(BUILD_DIR)) {
     fs.rmSync(BUILD_DIR, { recursive: true, force: true });
-    console.log(`Cleaned build directory: ${BUILD_DIR}`);
   }
   
   ensureBuildDirectory();
   copyFiles();
   
-  console.log('Build completed successfully!');
 }
 
 // Run the script

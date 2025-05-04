@@ -109,8 +109,6 @@ const trackingDataStore = {
   clearTabDataForHostname(tabId, hostname) {
     if (!this.tabs[tabId]) return false;
     
-    console.log(`Clearing data for hostname ${hostname} in tab ${tabId}`);
-    
     // Completely reset the tab data for this hostname to ensure clean start
     // This is more thorough than filtering out requests from the hostname
     this.tabs[tabId] = [];
@@ -132,20 +130,13 @@ const trackingDataStore = {
     chrome.storage.local.get(['trackedRequests'], (result) => {
       if (result.trackedRequests) {
         this.tabs = result.trackedRequests;
-        console.log(`Loaded tracking data from storage: ${Object.keys(this.tabs).length} tabs`);
       }
     });
   },
   
   // Save data to storage
   saveToStorage() {
-    chrome.storage.local.set({ trackedRequests: this.tabs }, () => {
-      if (chrome.runtime.lastError) {
-        console.error('Error saving tracking data to storage:', chrome.runtime.lastError);
-      } else {
-        console.log(`Saved tracking data to storage: ${Object.keys(this.tabs).length} tabs`);
-      }
-    });
+    chrome.storage.local.set({ trackedRequests: this.tabs });
   }
 };
 
@@ -172,7 +163,6 @@ function initializeDefaultSettings() {
 
 // Add an event listener for when the extension is activated (e.g., popup opened)
 chrome.runtime.onStartup.addListener(() => {
-  console.log('Extension startup - loading stored tracking data');
   trackingDataStore.loadFromStorage();
 });
 
@@ -182,7 +172,6 @@ initializeDefaultSettings();
 
 // Listen for extension installation/update
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('PixelTracer installed or updated - clearing stored tracking data');
   trackingDataStore.clearAllData();
   initializeDefaultSettings();
 });
@@ -197,13 +186,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
       
       // Clear data for this hostname in this tab
       if (hostname) {
-        console.log(`Page refresh/navigation detected for ${hostname} in tab ${tabId}`);
-        console.log(`Before clearing: ${JSON.stringify(trackingDataStore.getTabRequests(tabId).length)} requests`);
-        
         const cleared = trackingDataStore.clearTabDataForHostname(tabId, hostname);
-        
-        console.log(`After clearing: ${JSON.stringify(trackingDataStore.getTabRequests(tabId).length)} requests`);
-        console.log(`Data cleared: ${cleared}`);
         
         // Notify content script if it's already loaded
         chrome.tabs.sendMessage(tabId, { 
@@ -211,12 +194,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
           hostname: hostname
         }).catch(() => {
           // Ignore errors - content script may not be loaded yet
-          console.log(`Could not send pageRefreshed message to tab ${tabId} - content script may not be loaded yet`);
         });
       }
     } catch (e) {
       // Invalid URL or other error, ignore
-      console.error('Error processing tab update:', e);
     }
   }
 });
@@ -224,7 +205,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 // Listen for tab removal
 chrome.tabs.onRemoved.addListener((tabId) => {
   // Clear data for the closed tab
-  console.log(`Tab ${tabId} closed - removing related tracking data`);
   trackingDataStore.clearTabData(tabId);
 });
 
@@ -441,13 +421,6 @@ function analyzeRequest(details) {
   const matchedProviders = identifyTrackingProviders(url);
   
   if (matchedProviders.length > 0) {
-    console.log(`[PixelTracer] Request detected:`, {
-      url,
-      method,
-      tabId,
-      providers: matchedProviders
-    });
-    
     // Parse URL and extract parameters
     const parsedUrl = new URL(url);
     const params = {};
@@ -616,7 +589,6 @@ function notifyContentScriptOfRequest(tabId, request) {
     // Don't need to handle response, but check for error
     if (chrome.runtime.lastError) {
       // Content script may not be active, that's ok
-      console.log('Could not notify content script:', chrome.runtime.lastError.message);
     }
   });
 }

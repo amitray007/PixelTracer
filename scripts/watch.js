@@ -26,19 +26,14 @@ const watchPaths = WATCH_PATTERNS.map(pattern => path.join(SOURCE_DIR, pattern))
 
 // Build the extension
 function buildExtension() {
-  console.log('\n--- Rebuilding extension ---');
   try {
     execSync('node scripts/build.js', { stdio: 'inherit' });
-    console.log('--- Rebuild complete ---\n');
   } catch (error) {
-    console.error('Error during rebuild:', error);
   }
 }
 
 // Watch for changes
 function watchForChanges() {
-  console.log('Watching for file changes...');
-  console.log('Press Ctrl+C to stop');
 
   // Initial build
   buildExtension();
@@ -52,22 +47,18 @@ function watchForChanges() {
   // File change event handler
   watcher
     .on('change', filePath => {
-      console.log(`File changed: ${path.relative(SOURCE_DIR, filePath)}`);
       buildExtension();
     })
     .on('add', filePath => {
-      console.log(`File added: ${path.relative(SOURCE_DIR, filePath)}`);
       buildExtension();
     })
     .on('unlink', filePath => {
-      console.log(`File removed: ${path.relative(SOURCE_DIR, filePath)}`);
       buildExtension();
     });
 }
 
 // Main function
 function main() {
-  console.log('Starting PixelTracer development mode...');
   watchForChanges();
 }
 

@@ -36,12 +36,10 @@ async function getCurrentTab() {
 // Setup reports tab events
 function setupReportsTabEvents() {
   const reportsTabButtons = document.querySelectorAll('#reports-window .tab-button');
-  console.log('Setting up reports tab events for', reportsTabButtons.length, 'buttons');
   
   reportsTabButtons.forEach(button => {
     button.addEventListener('click', () => {
       const tabName = button.getAttribute('data-tab');
-      console.log('Reports tab clicked:', tabName);
       setActiveTab(tabName);
     });
   });
@@ -49,17 +47,14 @@ function setupReportsTabEvents() {
 
 // Initialize the popup
 async function initPopup() {
-  console.log('Initializing popup');
   try {
     const currentTab = await getCurrentTab();
     if (!currentTab || !currentTab.url) {
-      console.error('Unable to get current tab or tab URL');
       handleDataLoadError('Cannot access current tab information');
       return;
     }
     
     currentPageUrl = currentTab.url;
-    console.log('Current page URL:', currentPageUrl);
     
     // Load theme first
     await loadThemePreference();
@@ -92,20 +87,16 @@ async function initPopup() {
     try {
       chrome.tabs.sendMessage(currentTab.id, { action: 'getPageInfo' }, (response) => {
         if (chrome.runtime.lastError) {
-          console.log('Error getting page info: ', chrome.runtime.lastError);
           return;
         }
         
         if (response) {
-          console.log('Page info:', response);
         }
       });
     } catch (error) {
-      console.log('Error sending message to content script:', error);
       // Continue execution - this is not a critical error
     }
   } catch (error) {
-    console.error('Error initializing popup:', error);
     handleDataLoadError('Extension initialization error');
   }
 }
@@ -148,30 +139,28 @@ async function toggleTheme() {
     chrome.tabs.sendMessage(currentTab.id, { 
       action: 'themeChanged',
       theme: isDarkMode ? 'dark' : 'light'
-    }).catch(err => console.log('Error sending theme change message:', err));
+    }).catch(err =>);
   }
 }
 
 // Setup all event listeners
 function setupEventListeners() {
-  console.log('Setting up event listeners');
   
   // Check if all required elements exist
-  if (!clearDataButton) console.error('Clear data button not found');
-  if (!exportDataButton) console.error('Export data button not found');
-  if (!liveViewButton) console.error('Live view button not found');
-  if (!reportsButton) console.error('Reports button not found');
-  if (!themeToggleButton) console.error('Theme toggle button not found');
-  if (!detailCloseBtn) console.error('Detail close button not found');
-  if (!reportsCloseBtn) console.error('Reports close button not found');
-  if (!detailOverlay) console.error('Detail overlay not found');
-  if (!collapseAllRequestsButton) console.error('Collapse all button not found');
-  if (!expandAllRequestsButton) console.error('Expand all button not found');
+  if (!clearDataButton)
+  if (!exportDataButton)
+  if (!liveViewButton)
+  if (!reportsButton)
+  if (!themeToggleButton)
+  if (!detailCloseBtn)
+  if (!reportsCloseBtn)
+  if (!detailOverlay)
+  if (!collapseAllRequestsButton)
+  if (!expandAllRequestsButton)
   
   // Attach button event listeners
   if (clearDataButton) clearDataButton.addEventListener('click', clearData);
   if (exportDataButton) {
-    console.log('Adding click listener to export button');
     exportDataButton.addEventListener('click', exportData);
   }
   if (liveViewButton) liveViewButton.addEventListener('click', toggleLiveView);
@@ -188,7 +177,6 @@ function setupEventListeners() {
   if (collapseAllRequestsButton) collapseAllRequestsButton.addEventListener('click', collapseAllRequests);
   if (expandAllRequestsButton) expandAllRequestsButton.addEventListener('click', expandAllRequests);
   
-  console.log('Event listeners setup complete');
 }
 
 // Update the Live View button state
@@ -231,12 +219,10 @@ function enableLiveView(tabId) {
     action: 'enableLiveView'
   }, (response) => {
     if (chrome.runtime.lastError) {
-      console.log('Error enabling Live View: ', chrome.runtime.lastError);
       return;
     }
     
     if (response && response.success) {
-      console.log('Live View enabled');
     }
   });
 }
@@ -247,19 +233,16 @@ function disableLiveView(tabId) {
     action: 'disableLiveView'
   }, (response) => {
     if (chrome.runtime.lastError) {
-      console.log('Error disabling Live View: ', chrome.runtime.lastError);
       return;
     }
     
     if (response && response.success) {
-      console.log('Live View disabled');
     }
   });
 }
 
 // Load tracking data with retry mechanism
 function loadTrackingDataWithRetry(tabId, retryCount = 0) {
-  console.log(`Loading tracking data for tab ${tabId} (attempt ${retryCount + 1})`);
   
   // Show loading state
   totalRequestsElement.textContent = "...";
@@ -273,12 +256,10 @@ function loadTrackingDataWithRetry(tabId, retryCount = 0) {
   try {
     loadTrackingData(tabId);
   } catch (error) {
-    console.error('Error loading tracking data:', error);
     
     // Retry up to 2 times with increasing delay
     if (retryCount < 2) {
       const delay = (retryCount + 1) * 500; // 500ms, then 1000ms
-      console.log(`Retrying in ${delay}ms...`);
       
       setTimeout(() => {
         loadTrackingDataWithRetry(tabId, retryCount + 1);
@@ -294,7 +275,6 @@ function loadTrackingData(tabId) {
   try {
     // Validate the current URL
     if (!currentPageUrl) {
-      console.error('Current page URL is not available');
       handleDataLoadError('No URL information available');
       return;
     }
@@ -304,19 +284,16 @@ function loadTrackingData(tabId) {
     try {
       hostname = new URL(currentPageUrl).hostname;
     } catch (error) {
-      console.error('Invalid URL format:', currentPageUrl, error);
       handleDataLoadError('Invalid URL format');
       return;
     }
     
     // Ensure hostname is valid
     if (!hostname) {
-      console.error('Could not extract hostname from URL:', currentPageUrl);
       handleDataLoadError('Could not determine website hostname');
       return;
     }
     
-    console.log(`Loading tracking data for tab ${tabId}, hostname: ${hostname}`);
     
     // Reset any cached data
     currentTabRequests = [];
@@ -329,7 +306,6 @@ function loadTrackingData(tabId) {
     }, (response) => {
       // Check for Chrome runtime errors first
       if (chrome.runtime.lastError) {
-        console.error('Error loading tracking data:', chrome.runtime.lastError);
         handleDataLoadError('Browser communication error');
         return;
       }
@@ -340,7 +316,6 @@ function loadTrackingData(tabId) {
         
         // Check if we got any data - if not, it might be a persistence issue
         if (currentTabRequests.length === 0) {
-          console.log('No tracking data available, checking if this is normal...');
           // We might want to try again once to see if it's just a timing issue
           setTimeout(() => {
             retryLoadingData(tabId, hostname);
@@ -367,19 +342,16 @@ function loadTrackingData(tabId) {
       } else {
         // Error or no data
         const errorMessage = response?.error || 'Unknown error loading tracking data';
-        console.error('Error loading tracking data:', errorMessage);
         handleDataLoadError(errorMessage);
       }
     });
   } catch (error) {
-    console.error('Unexpected error in loadTrackingData:', error);
     handleDataLoadError('Unexpected error loading data');
   }
 }
 
 // Function to handle error loading data
 function handleDataLoadError(errorMessage = 'Failed to load tracking data') {
-  console.error(errorMessage);
   totalRequestsElement.textContent = "0";
   uniqueProvidersElement.textContent = "0";
   providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
@@ -388,7 +360,6 @@ function handleDataLoadError(errorMessage = 'Failed to load tracking data') {
 
 // Retry loading data once
 function retryLoadingData(tabId, hostname) {
-  console.log(`Retrying data load for tab ${tabId}, hostname: ${hostname}...`);
   
   try {
     chrome.runtime.sendMessage({
@@ -398,14 +369,12 @@ function retryLoadingData(tabId, hostname) {
     }, (response) => {
       // Check for runtime errors
       if (chrome.runtime.lastError) {
-        console.error('Retry failed due to runtime error:', chrome.runtime.lastError);
         handleDataLoadError('Communication error during retry');
         return;
       }
       
       // Check for invalid response
       if (!response || !response.success) {
-        console.error('Retry failed:', !response ? 'No response' : response.error || 'Invalid response');
         handleDataLoadError('Failed to retrieve data');
         return;
       }
@@ -427,18 +396,15 @@ function retryLoadingData(tabId, hostname) {
       
       if (currentTabRequests.length === 0) {
         // Still no data, show proper empty state (this is likely a valid empty state, not an error)
-        console.log('No tracking data found after retry - showing empty state');
         providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
         requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
       } else {
         // We have data, render it
-        console.log(`Successfully loaded ${currentTabRequests.length} requests on retry`);
         renderProviders(uniqueProviders);
         renderRequests(currentTabRequests);
       }
     });
   } catch (error) {
-    console.error('Unexpected error during data load retry:', error);
     handleDataLoadError('Error during data retry');
   }
 }
@@ -942,7 +908,6 @@ function setActiveTab(tabName) {
   const isDetailTab = ['general', 'event', 'params', 'headers', 'payload'].includes(tabName);
   const containerSelector = isDetailTab ? '#detail-window' : '#reports-window';
   
-  console.log(`Setting active tab to ${tabName} in ${containerSelector}`);
   
   // Update tab buttons in the correct container
   const container = document.querySelector(containerSelector);
@@ -995,7 +960,6 @@ async function clearData() {
 
 // Export tracking data as JSON or CSV
 async function exportData() {
-  console.log('Export button clicked');
   const currentTab = await getCurrentTab();
   const hostname = new URL(currentPageUrl).hostname;
   
@@ -1015,13 +979,11 @@ async function exportData() {
   const exportButton = document.getElementById('export-data');
   
   if (!exportButton) {
-    console.error('Export button not found');
     showErrorMessage('Export failed: Button not found');
     return;
   }
   
   const buttonRect = exportButton.getBoundingClientRect();
-  console.log('Export button position:', buttonRect);
   
   // Position calculation - append first to get dimensions
   exportMenu.style.opacity = '0';
@@ -1053,13 +1015,11 @@ async function exportData() {
     exportMenu.style.transform = 'translateY(0)';
   }, 10);
   
-  console.log('Export menu added to document');
   
   // Add event listeners to the menu items
   const jsonExportItem = document.querySelector('.export-menu-item[data-format="json"]');
   if (jsonExportItem) {
     jsonExportItem.addEventListener('click', () => {
-      console.log('JSON export selected');
       exportAsJSON(currentTab, hostname);
       document.body.removeChild(exportMenu);
       document.head.removeChild(arrow);
@@ -1069,7 +1029,6 @@ async function exportData() {
   const csvExportItem = document.querySelector('.export-menu-item[data-format="csv"]');
   if (csvExportItem) {
     csvExportItem.addEventListener('click', () => {
-      console.log('CSV export selected');
       exportAsCSV(currentTab, hostname);
       document.body.removeChild(exportMenu);
       document.head.removeChild(arrow);
@@ -1120,7 +1079,6 @@ function showErrorMessage(message) {
 
 // Export tracking data as JSON
 async function exportAsJSON(currentTab, hostname) {
-  console.log('Exporting data as JSON');
   try {
     // Get data from the background script
     chrome.runtime.sendMessage({
@@ -1137,24 +1095,20 @@ async function exportAsJSON(currentTab, hostname) {
         };
         
         const jsonData = JSON.stringify(exportData, null, 2);
-        console.log(`Prepared JSON data (${jsonData.length} characters)`);
         
         downloadData(`pixeltracer-export-${Date.now()}.json`, jsonData, 'application/json');
       } else {
         const errorMsg = response?.error || 'Failed to get tracking data';
-        console.error('Export JSON error:', errorMsg);
         showErrorMessage(`Export failed: ${errorMsg}`);
       }
     });
   } catch (error) {
-    console.error('Export JSON error:', error);
     showErrorMessage(`Export failed: ${error.message}`);
   }
 }
 
 // Export tracking data as CSV
 async function exportAsCSV(currentTab, hostname) {
-  console.log('Exporting data as CSV');
   try {
     // Get CSV data from the background script
     chrome.runtime.sendMessage({
@@ -1163,29 +1117,24 @@ async function exportAsCSV(currentTab, hostname) {
       hostname: hostname
     }, (response) => {
       if (response && response.success) {
-        console.log(`Prepared CSV data (${response.csvData.length} characters)`);
         downloadData(`pixeltracer-export-${Date.now()}.csv`, response.csvData, 'text/csv');
       } else {
         const errorMsg = response?.error || 'Failed to export CSV';
-        console.error('Export CSV error:', errorMsg);
         showErrorMessage(`Export failed: ${errorMsg}`);
       }
     });
   } catch (error) {
-    console.error('Export CSV error:', error);
     showErrorMessage(`Export failed: ${error.message}`);
   }
 }
 
 // Helper function to download data
 function downloadData(filename, data, type) {
-  console.log(`Attempting to download ${filename} (${type})`);
   
   try {
     const blob = new Blob([data], { type });
     const url = URL.createObjectURL(blob);
     
-    console.log('Blob created, URL:', url);
     
     const a = document.createElement('a');
     a.href = url;
@@ -1197,16 +1146,13 @@ function downloadData(filename, data, type) {
     
     // Trigger the download using a small delay to ensure DOM updates
     setTimeout(() => {
-      console.log('Triggering download...');
       a.click();
       
       // Cleanup
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
-      console.log('Download triggered and cleanup completed');
     }, 100);
   } catch (error) {
-    console.error('Error in downloadData:', error);
     
     // Show error notification to user
     const errorMessage = document.createElement('div');
@@ -1759,12 +1705,10 @@ function formatProviderNameFromId(providerId) {
 // Setup tab events for detail window
 function setupDetailTabEvents() {
   const detailTabButtons = document.querySelectorAll('#detail-window .tab-button');
-  console.log('Setting up detail tab events for', detailTabButtons.length, 'buttons');
   
   detailTabButtons.forEach(button => {
     button.addEventListener('click', () => {
       const tabName = button.getAttribute('data-tab');
-      console.log('Tab clicked:', tabName);
       setActiveTab(tabName);
     });
   });
