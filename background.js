@@ -8,7 +8,7 @@ const trackingProviders = {
     patterns: [
       /https:\/\/analytics\.tiktok\.com\/api\/v[0-9]\/(?:track|pixel)/
     ],
-    methods: ['POST'],
+    methods: ['GET', 'POST'],
     category: 'marketing',
     schema: {
       eventTypes: {
