@@ -1237,44 +1237,302 @@ function fillGeneralTab(providerId, request) {
 }
 
 /**
- * Fill the Event tab with event-specific information
- * @param {string} providerId - ID of the provider
+ * Fill the Event tab with event data
+ * @param {string} providerId - The provider ID
  * @param {object} request - The request data
  */
 function fillEventTab(providerId, request) {
   const provider = trackingProviders[providerId];
   const eventContent = document.getElementById('event-content');
   
-  if (!provider.schema || !provider.schema.groups || !provider.schema.groups.event) {
+  if (!provider || !provider.schema || !provider.schema.groups) {
     eventContent.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data available for this provider</div>';
     return;
   }
   
-  const eventGroup = provider.schema.groups.event;
-  let tableRows = '';
-  let hasValues = false;
+  // Add styles for event cards if they don't exist
+  if (!document.getElementById('event-card-styles')) {
+    const style = document.createElement('style');
+    style.id = 'event-card-styles';
+    style.textContent = `
+      .event-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        overflow: hidden;
+      }
+      .event-card-header {
+        background-color: #f5f5f5;
+        padding: 8px 12px;
+        font-weight: 600;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .event-card-badge {
+        background-color: #4a90e2;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+      .event-section {
+        background-color: #f9f9f9;
+        padding: 6px 12px;
+        font-size: 14px;
+        font-weight: 500;
+        border-top: 1px solid #eaeaea;
+        border-bottom: 1px solid #eaeaea;
+        color: #555;
+      }
+      .event-card .param-table tr:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+      
+      /* Dark mode styles */
+      body.dark-mode .event-card {
+        border-color: #444;
+      }
+      body.dark-mode .event-card-header {
+        background-color: #333;
+        border-color: #444;
+      }
+      body.dark-mode .event-section {
+        background-color: #2a2a2a;
+        border-color: #444;
+        color: #ccc;
+      }
+      body.dark-mode .event-card .param-table tr:nth-child(even) {
+        background-color: #2a2a2a;
+      }
+    `;
+    document.head.appendChild(style);
+  }
   
-  for (const field of eventGroup.fields) {
-    if (request.params[field.key]) {
-      hasValues = true;
-      tableRows += `
-        <tr>
-          <th class="param-name">${field.label}</th>
-          <td class="param-value">${request.params[field.key]}</td>
-        </tr>`;
+  // For AdNabu provider with array-based payloads, create a card for each event
+  if (providerId === 'adnabu-google-ads') {
+    let html = '';
+    
+    if (request.payload && Array.isArray(request.payload) && request.payload.length > 0) {
+      // Process each event in the payload
+      request.payload.forEach((event, index) => {
+        const eventName = event.event_name || 'Unknown';
+        const conversionId = event.conversion_id || '';
+        
+        html += `
+          <div class="event-card">
+            <div class="event-card-header">
+              <span>Event ${index + 1}: ${eventName}</span>
+              ${conversionId ? `<span class="event-card-badge">${conversionId}</span>` : ''}
+            </div>
+            <table class="param-table">
+        `;
+        
+        // Main properties in a consistent order
+        const keyProperties = [
+          { key: 'event_id', label: 'Event ID' },
+          { key: 'event_name', label: 'Event Type' },
+          { key: 'conversion_id', label: 'Conversion ID' },
+          { key: 'conversion_label', label: 'Conversion Label' },
+          { key: 'value', label: 'Value' },
+          { key: 'currency', label: 'Currency' }
+        ];
+        
+        keyProperties.forEach(prop => {
+          if (event[prop.key] !== undefined && event[prop.key] !== null) {
+            html += `
+              <tr>
+                <th class="param-name">${prop.label}</th>
+                <td class="param-value">${event[prop.key]}</td>
+              </tr>
+            `;
+          }
+        });
+        
+        // Other properties in a separate section
+        const otherProps = [];
+        Object.entries(event).forEach(([key, value]) => {
+          // Skip already added key properties
+          if (keyProperties.some(p => p.key === key)) return;
+          
+          // Skip null/undefined values
+          if (value === null || value === undefined) return;
+          
+          // Skip complex objects that aren't arrays
+          if (typeof value === 'object' && !Array.isArray(value)) return;
+          
+          const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          otherProps.push({ 
+            key: formattedKey, 
+            value: Array.isArray(value) ? JSON.stringify(value) : value 
+          });
+        });
+        
+        if (otherProps.length > 0) {
+          html += `
+            </table>
+            <div class="event-section">Additional Properties</div>
+            <table class="param-table">
+          `;
+          
+          otherProps.forEach(prop => {
+            html += `
+              <tr>
+                <th class="param-name">${prop.key}</th>
+                <td class="param-value">${prop.value}</td>
+              </tr>
+            `;
+          });
+        }
+        
+        // Handle items array if present
+        if (event.items && Array.isArray(event.items) && event.items.length > 0) {
+          html += `
+            </table>
+            <div class="event-section">Items (${event.items.length})</div>
+            <table class="param-table">
+          `;
+          
+          event.items.forEach((item, itemIndex) => {
+            html += `
+              <tr>
+                <th colspan="2" class="param-name" style="background-color: #f0f0f0;">Item ${itemIndex + 1}</th>
+              </tr>
+            `;
+            
+            Object.entries(item).forEach(([key, value]) => {
+              if (value === null || value === undefined) return;
+              
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+              html += `
+                <tr>
+                  <th class="param-name" style="padding-left: 20px;">${formattedKey}</th>
+                  <td class="param-value">${value}</td>
+                </tr>
+              `;
+            });
+          });
+        }
+        
+        html += `
+            </table>
+          </div>
+        `;
+      });
+      
+      // Add any additional events from customData
+      if (request.customData && request.customData.events && request.customData.events.length > 0) {
+        // Group events by their event number
+        const eventGroups = {};
+        
+        request.customData.events.forEach(event => {
+          // Extract event number from field name (e.g. "Event 2 Type" -> 2)
+          const match = event.field.match(/Event (\d+)/);
+          if (match && match[1]) {
+            const eventNum = match[1];
+            if (!eventGroups[eventNum]) {
+              eventGroups[eventNum] = [];
+            }
+            eventGroups[eventNum].push(event);
+          }
+        });
+        
+        // Create a card for each event group if not already created
+        const payloadEventCount = request.payload.length;
+        
+        Object.entries(eventGroups).forEach(([eventNum, events]) => {
+          // Skip if this event was already in the payload
+          if (parseInt(eventNum) <= payloadEventCount) return;
+          
+          // Find event name/type and conversion ID
+          const eventType = events.find(e => e.field.includes('Type'))?.value || 'Unknown';
+          const conversionId = events.find(e => e.field.includes('Conversion ID'))?.value || '';
+          
+          html += `
+            <div class="event-card">
+              <div class="event-card-header">
+                <span>Event ${eventNum}: ${eventType}</span>
+                ${conversionId ? `<span class="event-card-badge">${conversionId}</span>` : ''}
+              </div>
+              <table class="param-table">
+          `;
+          
+          events.forEach(event => {
+            html += `
+              <tr>
+                <th class="param-name">${event.field.replace(`Event ${eventNum} `, '')}</th>
+                <td class="param-value">${event.value}</td>
+              </tr>
+            `;
+          });
+          
+          html += `
+              </table>
+            </div>
+          `;
+        });
+      }
+    } else {
+      html = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data found in this request</div>';
     }
+    
+    eventContent.innerHTML = html;
+  } else {
+    // Standard handling for other providers
+    let eventData = [];
+    
+    // Collect event data
+    if (provider.schema.groups.event) {
+      const eventGroup = provider.schema.groups.event;
+      
+      for (const field of eventGroup.fields) {
+        if (request.params[field.key]) {
+          eventData.push({ label: field.label, value: request.params[field.key] });
+        }
+      }
+    }
+    
+    // Handle custom data for other providers
+    if (request.customData && request.customData.events) {
+      request.customData.events.forEach(event => {
+        eventData.push({ label: event.field, value: event.value });
+      });
+    }
+    
+    // If we have no event data, show empty state
+    if (eventData.length === 0) {
+      eventContent.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data found in this request</div>';
+      return;
+    }
+    
+    // For regular providers, use a single card
+    let html = `
+      <div class="event-card">
+        <div class="event-card-header">
+          <span>Event Details</span>
+          <span class="event-card-badge">${request.eventType || 'Unknown'}</span>
+        </div>
+        <table class="param-table">
+    `;
+    
+    eventData.forEach(item => {
+      html += `
+        <tr>
+          <th class="param-name">${item.label}</th>
+          <td class="param-value">${item.value}</td>
+        </tr>
+      `;
+    });
+    
+    html += `
+        </table>
+      </div>
+    `;
+    
+    eventContent.innerHTML = html;
   }
-  
-  if (!hasValues) {
-    eventContent.innerHTML = '<div class="empty-state"><i class="fas fa-bolt"></i> No event data found in this request</div>';
-    return;
-  }
-  
-  eventContent.innerHTML = `
-    <table class="param-table">
-      ${tableRows}
-    </table>
-  `;
 }
 
 /**

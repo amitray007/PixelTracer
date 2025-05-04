@@ -1483,6 +1483,67 @@ function fillEventTab(providerId, request) {
     return;
   }
   
+  // Add styles for event cards if they don't exist
+  if (!document.getElementById('pixeltracer-event-card-styles')) {
+    const style = document.createElement('style');
+    style.id = 'pixeltracer-event-card-styles';
+    style.textContent = `
+      .pixeltracer-event-card {
+        border: 1px solid #e0e0e0;
+        border-radius: 6px;
+        margin-bottom: 16px;
+        overflow: hidden;
+      }
+      .pixeltracer-event-card-header {
+        background-color: #f5f5f5;
+        padding: 8px 12px;
+        font-weight: 600;
+        border-bottom: 1px solid #e0e0e0;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+      .pixeltracer-event-card-badge {
+        background-color: #4a90e2;
+        color: white;
+        padding: 3px 8px;
+        border-radius: 4px;
+        font-size: 12px;
+        text-transform: uppercase;
+      }
+      .pixeltracer-event-section {
+        background-color: #f9f9f9;
+        padding: 6px 12px;
+        font-size: 14px;
+        font-weight: 500;
+        border-top: 1px solid #eaeaea;
+        border-bottom: 1px solid #eaeaea;
+        color: #555;
+      }
+      .pixeltracer-event-card .pixeltracer-details-item:nth-child(even) {
+        background-color: #f9f9f9;
+      }
+      
+      /* Dark mode styles */
+      body.dark-mode .pixeltracer-event-card {
+        border-color: #444;
+      }
+      body.dark-mode .pixeltracer-event-card-header {
+        background-color: #333;
+        border-color: #444;
+      }
+      body.dark-mode .pixeltracer-event-section {
+        background-color: #2a2a2a;
+        border-color: #444;
+        color: #ccc;
+      }
+      body.dark-mode .pixeltracer-event-card .pixeltracer-details-item:nth-child(even) {
+        background-color: #2a2a2a;
+      }
+    `;
+    document.head.appendChild(style);
+  }
+  
   chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId }, (response) => {
     if (!response || !response.provider) {
       content.innerHTML = '<div class="pixeltracer-empty-state">No event details available</div>';
@@ -1494,62 +1555,214 @@ function fillEventTab(providerId, request) {
     // Get the schema for this provider
     const schema = provider.schema || {};
     
-    // Display formatted event type
-    let formattedEventType = formatEventType(request.eventType) || 'Unknown';
-    if (schema.eventTypes && schema.eventTypes[request.eventType]) {
-      formattedEventType = schema.eventTypes[request.eventType];
-    }
-    
-    let html = `
-      <div class="pixeltracer-details-group">
-        <div class="pixeltracer-details-group-title">
-          <i class="fas fa-bolt"></i> Event Information
-        </div>
-        <div class="pixeltracer-details-item">
-          <div class="pixeltracer-details-key">Event Type</div>
-          <div class="pixeltracer-details-value">${formattedEventType}</div>
-        </div>
-    `;
-    
-    // Check if we have event parameters for this provider
-    const params = request.params || {};
-    
-    if (schema.groups && schema.groups.event) {
-      const eventFields = schema.groups.event.fields || [];
+    // For AdNabu provider with array-based payloads, create a card for each event
+    if (providerId === 'adnabu-google-ads' && request.payload && Array.isArray(request.payload) && request.payload.length > 0) {
+      let html = '';
       
-      eventFields.forEach(field => {
-        if (params[field.key]) {
-          html += `
-            <div class="pixeltracer-details-item">
-              <div class="pixeltracer-details-key">${field.label}</div>
-              <div class="pixeltracer-details-value">${params[field.key]}</div>
+      // Process each event in the payload
+      request.payload.forEach((event, index) => {
+        const eventName = event.event_name || 'Unknown';
+        const conversionId = event.conversion_id || '';
+        
+        html += `
+          <div class="pixeltracer-event-card">
+            <div class="pixeltracer-event-card-header">
+              <span>Event ${index + 1}: ${eventName}</span>
+              ${conversionId ? `<span class="pixeltracer-event-card-badge">${conversionId}</span>` : ''}
             </div>
-          `;
+        `;
+        
+        // Main properties
+        const keyProperties = [
+          { key: 'event_id', label: 'Event ID' },
+          { key: 'event_name', label: 'Event Type' },
+          { key: 'conversion_id', label: 'Conversion ID' },
+          { key: 'conversion_label', label: 'Conversion Label' },
+          { key: 'value', label: 'Value' },
+          { key: 'currency', label: 'Currency' }
+        ];
+        
+        keyProperties.forEach(prop => {
+          if (event[prop.key] !== undefined && event[prop.key] !== null) {
+            html += `
+              <div class="pixeltracer-details-item">
+                <div class="pixeltracer-details-key">${prop.label}</div>
+                <div class="pixeltracer-details-value">${event[prop.key]}</div>
+              </div>
+            `;
+          }
+        });
+        
+        // Other properties in a separate section
+        const otherProps = [];
+        Object.entries(event).forEach(([key, value]) => {
+          // Skip already added key properties
+          if (keyProperties.some(p => p.key === key)) return;
+          
+          // Skip null/undefined values
+          if (value === null || value === undefined) return;
+          
+          // Skip complex objects that aren't arrays
+          if (typeof value === 'object' && !Array.isArray(value)) return;
+          
+          const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+          otherProps.push({ 
+            key: formattedKey, 
+            value: Array.isArray(value) ? JSON.stringify(value) : value 
+          });
+        });
+        
+        if (otherProps.length > 0) {
+          html += `<div class="pixeltracer-event-section">Additional Properties</div>`;
+          
+          otherProps.forEach(prop => {
+            html += `
+              <div class="pixeltracer-details-item">
+                <div class="pixeltracer-details-key">${prop.key}</div>
+                <div class="pixeltracer-details-value">${prop.value}</div>
+              </div>
+            `;
+          });
         }
+        
+        // Handle items array if present
+        if (event.items && Array.isArray(event.items) && event.items.length > 0) {
+          html += `<div class="pixeltracer-event-section">Items (${event.items.length})</div>`;
+          
+          event.items.forEach((item, itemIndex) => {
+            html += `
+              <div class="pixeltracer-details-item" style="background-color: #f0f0f0;">
+                <div class="pixeltracer-details-key" style="font-weight: 600;">Item ${itemIndex + 1}</div>
+                <div class="pixeltracer-details-value"></div>
+              </div>
+            `;
+            
+            Object.entries(item).forEach(([key, value]) => {
+              if (value === null || value === undefined) return;
+              
+              const formattedKey = key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+              html += `
+                <div class="pixeltracer-details-item">
+                  <div class="pixeltracer-details-key" style="padding-left: 24px;">${formattedKey}</div>
+                  <div class="pixeltracer-details-value">${value}</div>
+                </div>
+              `;
+            });
+          });
+        }
+        
+        html += `</div>`;
       });
-    }
-    
-    // Handle custom data if available (e.g., Facebook Pixel contents)
-    if (request.customData && request.customData.contents) {
-      html += `
-        <div class="pixeltracer-details-group-title">
-          <i class="fas fa-shopping-cart"></i> Product Information
-        </div>
+      
+      // Add additional events from customData if they exist
+      if (request.customData && request.customData.events && request.customData.events.length > 0) {
+        // Group events by their event number
+        const eventGroups = {};
+        
+        request.customData.events.forEach(event => {
+          // Extract event number from field name (e.g. "Event 2 Type" -> 2)
+          const match = event.field.match(/Event (\d+)/);
+          if (match && match[1]) {
+            const eventNum = match[1];
+            if (!eventGroups[eventNum]) {
+              eventGroups[eventNum] = [];
+            }
+            eventGroups[eventNum].push(event);
+          }
+        });
+        
+        // Create a card for each event group if not already created from the payload
+        const payloadEventCount = request.payload.length;
+        
+        Object.entries(eventGroups).forEach(([eventNum, events]) => {
+          // Skip if this event was already in the payload
+          if (parseInt(eventNum) <= payloadEventCount) return;
+          
+          // Find type and conversion ID
+          const eventType = events.find(e => e.field.includes('Type'))?.value || 'Unknown';
+          const conversionId = events.find(e => e.field.includes('Conversion ID'))?.value || '';
+          
+          html += `
+            <div class="pixeltracer-event-card">
+              <div class="pixeltracer-event-card-header">
+                <span>Event ${eventNum}: ${eventType}</span>
+                ${conversionId ? `<span class="pixeltracer-event-card-badge">${conversionId}</span>` : ''}
+              </div>
+          `;
+          
+          events.forEach(event => {
+            html += `
+              <div class="pixeltracer-details-item">
+                <div class="pixeltracer-details-key">${event.field.replace(`Event ${eventNum} `, '')}</div>
+                <div class="pixeltracer-details-value">${event.value}</div>
+              </div>
+            `;
+          });
+          
+          html += `</div>`;
+        });
+      }
+      
+      content.innerHTML = html;
+    } else {
+      // Standard display for other providers
+      // Display formatted event type
+      let formattedEventType = formatEventType(request.eventType) || 'Unknown';
+      if (schema.eventTypes && schema.eventTypes[request.eventType]) {
+        formattedEventType = schema.eventTypes[request.eventType];
+      }
+      
+      let html = `
+        <div class="pixeltracer-details-group">
+          <div class="pixeltracer-details-group-title">
+            <i class="fas fa-bolt"></i> Event Information
+          </div>
+          <div class="pixeltracer-details-item">
+            <div class="pixeltracer-details-key">Event Type</div>
+            <div class="pixeltracer-details-value">${formattedEventType}</div>
+          </div>
       `;
       
-      request.customData.contents.forEach(item => {
+      // Check if we have event parameters for this provider
+      const params = request.params || {};
+      
+      if (schema.groups && schema.groups.event) {
+        const eventFields = schema.groups.event.fields || [];
+        
+        eventFields.forEach(field => {
+          if (params[field.key]) {
+            html += `
+              <div class="pixeltracer-details-item">
+                <div class="pixeltracer-details-key">${field.label}</div>
+                <div class="pixeltracer-details-value">${params[field.key]}</div>
+              </div>
+            `;
+          }
+        });
+      }
+      
+      // Handle custom data if available (e.g., Facebook Pixel contents)
+      if (request.customData && request.customData.contents) {
         html += `
-          <div class="pixeltracer-details-item">
-            <div class="pixeltracer-details-key">${item.field}</div>
-            <div class="pixeltracer-details-value">${item.value}</div>
+          <div class="pixeltracer-details-group-title">
+            <i class="fas fa-shopping-cart"></i> Product Information
           </div>
         `;
-      });
+        
+        request.customData.contents.forEach(item => {
+          html += `
+            <div class="pixeltracer-details-item">
+              <div class="pixeltracer-details-key">${item.field}</div>
+              <div class="pixeltracer-details-value">${item.value}</div>
+            </div>
+          `;
+        });
+      }
+      
+      html += '</div>';
+      
+      content.innerHTML = html;
     }
-    
-    html += '</div>';
-    
-    content.innerHTML = html;
   });
 }
 

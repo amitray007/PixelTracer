@@ -8,6 +8,7 @@ const trackingProviders = {
     patterns: [
       /https:\/\/analytics\.tiktok\.com\/api\/v[0-9]\/(?:track|pixel)/
     ],
+    methods: ['POST'],
     category: 'marketing',
     schema: {
       eventTypes: {
@@ -72,6 +73,7 @@ const trackingProviders = {
     patterns: [
       /\/pagead\/(?:viewthrough)conversion/
     ],
+    methods: ['GET', 'POST'],
     category: 'marketing',
     schema: {
       eventTypes: {
@@ -134,6 +136,7 @@ const trackingProviders = {
     patterns: [
       /facebook\.com\/tr\/?(?!.*&ev=microdata)\?/i
     ],
+    methods: ['GET', 'POST'],
     category: 'marketing',
     schema: {
       eventTypes: {
@@ -235,6 +238,7 @@ const trackingProviders = {
       /gtag\/js\?id=G-/,
       /gtag\/js\?id=UA-/
     ],
+    methods: ['GET', 'POST'],
     category: 'analytics',
     schema: {
       // Maps event types to display names
@@ -278,7 +282,236 @@ const trackingProviders = {
         }
       }
     }
-  }
+  },
+
+  // AdNabu (Google Ads) Provider
+  'adnabu-google-ads': {
+    name: 'AdNabu (Google Ads)',
+    description: 'AdNabu\'s Google Ads server-side tracking',
+    patterns: [
+      /https?:\/\/gcads-event-relay\.adnabu\.com\/.*/
+    ],
+    methods: ['POST'],
+    category: 'marketing',
+    schema: {
+      eventTypes: {
+        'add_to_cart': 'Add to Cart',
+        'purchase': 'Purchase',
+        'initiate_checkout': 'Begin Checkout',
+        'page_view': 'Page View',
+      },
+      groups: {
+        'event': {
+          title: 'Event',
+          fields: [
+            { key: 'event_id', label: 'Event ID' },
+            { key: 'event_name', label: 'Event Name' },
+            { key: 'conversion_id', label: 'Conversion ID' },
+            { key: 'conversion_label', label: 'Conversion Label' },
+            { key: 'value', label: 'Value' },
+            { key: 'currency', label: 'Currency' }
+          ]
+        },
+        'page': {
+          title: 'Page Data',
+          fields: [
+            { key: 'page_hostname', label: 'Hostname' },
+            { key: 'page_location', label: 'Page URL' },
+            { key: 'page_path', label: 'Page Path' },
+            { key: 'page_title', label: 'Page Title' },
+            { key: 'page_referrer', label: 'Referrer' }
+          ]
+        },
+        'user': {
+          title: 'User Data',
+          fields: [
+            { key: 'client_id', label: 'Client ID' },
+            { key: 'language', label: 'Language' },
+            { key: 'ip_override', label: 'IP Address' },
+            { key: 'user_agent', label: 'User Agent' },
+            { key: 'viewport_size', label: 'Viewport Size' },
+            { key: 'screen_resolution', label: 'Screen Resolution' }
+          ]
+        },
+        'shop': {
+          title: 'Shop Data',
+          fields: [
+            { key: 'shopify_shop', label: 'Shopify Shop' }
+          ]
+        }
+      },
+      // Custom parsing functions for AdNabu data
+      parseAccount: (params, url, payload) => {
+        if (payload && Array.isArray(payload) && payload.length > 0) {
+          const firstEvent = payload[0];
+          if (firstEvent.conversion_id && firstEvent.conversion_label) {
+            return `${firstEvent.conversion_id}/${firstEvent.conversion_label}`;
+          } else if (firstEvent.conversion_id) {
+            return firstEvent.conversion_id;
+          }
+        }
+        return '';
+      },
+      parseEventType: (params, url, payload) => {
+        if (payload && Array.isArray(payload) && payload.length > 0) {
+          return payload[0].event_name || 'Unknown';
+        }
+        return 'Unknown';
+      },
+      // Special parsing function to handle the array of events
+      parsePayloadEvents: (payload) => {
+        if (!payload || !Array.isArray(payload)) return [];
+        
+        // We'll extract all events and their data
+        const eventData = [];
+        
+        payload.forEach((event, index) => {
+          if (index === 0) return; // First event is already handled by main display
+          
+          // Create a title for this additional event
+          eventData.push({
+            key: `event_${index}_title`,
+            field: `Event ${index+1}`,
+            value: `${event.event_name || 'Unknown'} (${event.conversion_id || 'Unknown ID'})`,
+            group: 'event'
+          });
+          
+          // Add more detailed information for each event
+          if (event.event_name) {
+            eventData.push({
+              key: `event_${index}_name`,
+              field: `Event ${index+1} Type`,
+              value: event.event_name,
+              group: 'event'
+            });
+          }
+          
+          if (event.event_id) {
+            eventData.push({
+              key: `event_${index}_id`,
+              field: `Event ${index+1} ID`,
+              value: event.event_id,
+              group: 'event'
+            });
+          }
+          
+          if (event.conversion_id) {
+            eventData.push({
+              key: `event_${index}_conversion_id`,
+              field: `Event ${index+1} Conversion ID`,
+              value: event.conversion_id,
+              group: 'event'
+            });
+          }
+          
+          if (event.conversion_label) {
+            eventData.push({
+              key: `event_${index}_conversion_label`,
+              field: `Event ${index+1} Conversion Label`,
+              value: event.conversion_label,
+              group: 'event'
+            });
+          }
+          
+          if (event.value) {
+            eventData.push({
+              key: `event_${index}_value`,
+              field: `Event ${index+1} Value`,
+              value: event.value,
+              group: 'event'
+            });
+          }
+          
+          if (event.currency) {
+            eventData.push({
+              key: `event_${index}_currency`,
+              field: `Event ${index+1} Currency`,
+              value: event.currency,
+              group: 'event'
+            });
+          }
+          
+          // Add ecommerce data if present
+          if (event.items && Array.isArray(event.items) && event.items.length > 0) {
+            // Add a header for items
+            eventData.push({
+              key: `event_${index}_items_header`,
+              field: `Event ${index+1} Items`,
+              value: `${event.items.length} item(s)`,
+              group: 'event'
+            });
+            
+            // Add details for each item
+            event.items.forEach((item, itemIndex) => {
+              if (item.item_id || item.id) {
+                eventData.push({
+                  key: `event_${index}_item_${itemIndex}_id`,
+                  field: `Event ${index+1} Item ${itemIndex+1} ID`,
+                  value: item.item_id || item.id,
+                  group: 'event'
+                });
+              }
+              
+              if (item.item_name) {
+                eventData.push({
+                  key: `event_${index}_item_${itemIndex}_name`,
+                  field: `Event ${index+1} Item ${itemIndex+1} Name`,
+                  value: item.item_name,
+                  group: 'event'
+                });
+              }
+              
+              if (item.price) {
+                eventData.push({
+                  key: `event_${index}_item_${itemIndex}_price`,
+                  field: `Event ${index+1} Item ${itemIndex+1} Price`,
+                  value: item.price,
+                  group: 'event'
+                });
+              }
+              
+              if (item.quantity) {
+                eventData.push({
+                  key: `event_${index}_item_${itemIndex}_quantity`,
+                  field: `Event ${index+1} Item ${itemIndex+1} Quantity`,
+                  value: item.quantity,
+                  group: 'event'
+                });
+              }
+            });
+          }
+          
+          // Add any additional custom parameters for this event
+          Object.entries(event).forEach(([key, value]) => {
+            // Skip the properties we've already explicitly added
+            if (['event_name', 'event_id', 'conversion_id', 'conversion_label', 'value', 'currency', 'items'].includes(key)) {
+              return;
+            }
+            
+            // Skip empty, null, or undefined values
+            if (value === null || value === undefined || value === '') {
+              return;
+            }
+            
+            // Skip object values that we can't display properly
+            if (typeof value === 'object' && !Array.isArray(value)) {
+              return;
+            }
+            
+            // Add this parameter to the event data
+            eventData.push({
+              key: `event_${index}_param_${key}`,
+              field: `Event ${index+1} ${key.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}`,
+              value: Array.isArray(value) ? JSON.stringify(value) : value,
+              group: 'event'
+            });
+          });
+        });
+        
+        return eventData;
+      }
+    }
+  },
 };
 
 // In-memory tracking data store to ensure consistency between popup and content script
@@ -781,7 +1014,7 @@ function analyzeRequest(details) {
   
   if (tabId < 0) return; // Ignore requests not associated with a tab
   
-  const matchedProviders = identifyTrackingProviders(url);
+  const matchedProviders = identifyTrackingProviders(url, method);
   
   if (matchedProviders.length > 0) {
     // Parse URL and extract parameters
@@ -830,11 +1063,31 @@ function analyzeRequest(details) {
     // Use custom parsing functions if available
     if (provider && provider.schema) {
       if (provider.schema.parseEventType) {
-        eventType = provider.schema.parseEventType(paramsObj, payload || parsedUrl);
+        try {
+          // For the AdNabu provider, we need to pass all three parameters
+          if (firstProvider === 'adnabu-google-ads') {
+            eventType = provider.schema.parseEventType(paramsObj, parsedUrl, payload);
+          } else {
+            eventType = provider.schema.parseEventType(paramsObj, parsedUrl);
+          }
+        } catch (e) {
+          console.error('Error parsing event type:', e);
+          eventType = 'Unknown';
+        }
       }
       
       if (provider.schema.parseAccount) {
-        accountId = provider.schema.parseAccount(paramsObj, payload || parsedUrl);
+        try {
+          // For the AdNabu provider, we need to pass all three parameters
+          if (firstProvider === 'adnabu-google-ads') {
+            accountId = provider.schema.parseAccount(paramsObj, parsedUrl, payload);
+          } else {
+            accountId = provider.schema.parseAccount(paramsObj, parsedUrl);
+          }
+        } catch (e) {
+          console.error('Error parsing account ID:', e);
+          accountId = '';
+        }
       }
     }
     
@@ -901,20 +1154,25 @@ function analyzeResponse(details) {
 /**
  * Identifies which tracking providers match a given URL
  * @param {string} url - The URL to check
+ * @param {string} method - The HTTP method (GET, POST, etc.)
  * @returns {string[]} - Array of matching provider names
  */
-function identifyTrackingProviders(url) {
+function identifyTrackingProviders(url, method) {
   const matchedProviders = [];
   
   for (const [providerName, provider] of Object.entries(trackingProviders)) {
-    if (provider.patterns.some(pattern => {
+    // Check if the URL pattern matches
+    const urlMatches = provider.patterns.some(pattern => {
       if (typeof pattern === 'string') {
         return url.includes(pattern);
       } else if (pattern instanceof RegExp) {
         return pattern.test(url);
       }
       return false;
-    })) {
+    });
+    
+    // If URL matches and either no methods are specified or the method matches, add the provider
+    if (urlMatches && (!provider.methods || provider.methods.includes(method))) {
       matchedProviders.push(providerName);
     }
   }
@@ -948,43 +1206,54 @@ function storeTrackingData(tabId, url, providers, details = {}) {
       get: (key) => details.params[key]
     };
     
-    // Add contents data if available
     const contentsData = provider.schema.parseContents(paramsObj);
+    
     if (contentsData && contentsData.length > 0) {
       customData.contents = contentsData;
     }
   }
   
-  // Create the tracking request object
+  // Handle AdNabu data which may have multiple events in an array
+  if (firstProvider === 'adnabu-google-ads' && provider && provider.schema.parsePayloadEvents) {
+    if (details.payload && Array.isArray(details.payload) && details.payload.length > 0) {
+      // Extract additional events from payload
+      const payloadEvents = provider.schema.parsePayloadEvents(details.payload);
+      
+      if (payloadEvents && payloadEvents.length > 0) {
+        customData.events = payloadEvents;
+      }
+      
+      // For AdNabu, set event category based on first event
+      if (details.payload[0] && details.payload[0].event_name) {
+        // Standard e-commerce event categories
+        const commerceEvents = ['add_to_cart', 'purchase', 'view_item', 'begin_checkout'];
+        details.category = commerceEvents.includes(details.payload[0].event_name) ? 'ecommerce' : 'marketing';
+      }
+    }
+  }
+  
+  // Create the request object
   const trackingRequest = {
-    timestamp: Date.now(),
     url,
     host,
     path,
     providers,
     eventType: details.eventType || 'Unknown',
     accountId: details.accountId || '',
-    method: details.method || 'GET',
-    requestId: details.requestId || '',
     params: details.params || {},
-    payload: details.payload || null,
     headers: details.headers || [],
-    responseHeaders: [],
-    statusCode: 0,
-    tabId,
-    // Add category based on provider
-    category: provider ? provider.category : 'analytics',
-    // Add any custom data that was processed
-    customData: Object.keys(customData).length > 0 ? customData : null
+    payload: details.payload || null,
+    customData,
+    method: details.method || 'GET',
+    timestamp: details.timestamp || Date.now(),
+    requestId: details.requestId || `req_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    category: details.category || (provider ? provider.category : 'analytics')
   };
   
-  // Add to our central tracking data store
+  // Store in the tracking data store
   trackingDataStore.addRequest(tabId, trackingRequest);
   
-  // Ensure the data is immediately saved to storage to prevent loss
-  trackingDataStore.saveToStorage();
-  
-  // Notify the content script for Live View
+  // Notify any content scripts
   notifyContentScriptOfRequest(tabId, trackingRequest);
 }
 
