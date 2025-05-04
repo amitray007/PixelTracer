@@ -1,0 +1,25 @@
+{
+  "name": "pixeltracer",
+  "version": "1.0.0",
+  "description": "Chrome extension for tracking and analyzing third-party requests",
+  "private": true,
+  "scripts": {
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "build": "node scripts/build.js",
+    "dev": "node scripts/watch.js",
+    "package": "node scripts/package.js",
+    "build-prod": "npm run build-prod:detect",
+    "build-prod:detect": "node -e \"const isWin = process.platform === 'win32'; require('child_process').execSync(isWin ? 'npm run build-prod:win' : 'npm run build-prod:unix', {stdio: 'inherit'});\"",
+    "build-prod:win": "build.bat",
+    "build-prod:unix": "chmod +x ./build.sh && ./build.sh",
+    "build-prod:js": "node scripts/package-prod.js"
+  },
+  "devDependencies": {
+    "archiver": "^5.3.1",
+    "chokidar": "^3.5.3",
+    "eslint": "^8.44.0",
+    "eslint-config-prettier": "^8.8.0",
+    "prettier": "^2.8.8"
+  }
+} 
