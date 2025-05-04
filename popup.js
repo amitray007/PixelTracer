@@ -52,6 +52,12 @@ async function initPopup() {
   console.log('Initializing popup');
   try {
     const currentTab = await getCurrentTab();
+    if (!currentTab || !currentTab.url) {
+      console.error('Unable to get current tab or tab URL');
+      handleDataLoadError('Cannot access current tab information');
+      return;
+    }
+    
     currentPageUrl = currentTab.url;
     console.log('Current page URL:', currentPageUrl);
     
@@ -78,23 +84,29 @@ async function initPopup() {
         enableLiveView(currentTab.id);
       }
       
-      // Load tracking data
-      loadTrackingData(currentTab.id);
+      // Load tracking data with retry support
+      loadTrackingDataWithRetry(currentTab.id);
     });
     
-    // Get page info from the content script
-    chrome.tabs.sendMessage(currentTab.id, { action: 'getPageInfo' }, (response) => {
-      if (chrome.runtime.lastError) {
-        console.log('Error getting page info: ', chrome.runtime.lastError);
-        return;
-      }
-      
-      if (response) {
-        console.log('Page info:', response);
-      }
-    });
+    // Get page info from the content script with error handling
+    try {
+      chrome.tabs.sendMessage(currentTab.id, { action: 'getPageInfo' }, (response) => {
+        if (chrome.runtime.lastError) {
+          console.log('Error getting page info: ', chrome.runtime.lastError);
+          return;
+        }
+        
+        if (response) {
+          console.log('Page info:', response);
+        }
+      });
+    } catch (error) {
+      console.log('Error sending message to content script:', error);
+      // Continue execution - this is not a critical error
+    }
   } catch (error) {
     console.error('Error initializing popup:', error);
+    handleDataLoadError('Extension initialization error');
   }
 }
 
@@ -245,13 +257,9 @@ function disableLiveView(tabId) {
   });
 }
 
-// Load tracking data for the current tab
-function loadTrackingData(tabId) {
-  // Get the current hostname from the URL
-  const hostname = new URL(currentPageUrl).hostname;
-  
-  // Reset any cached data
-  currentTabRequests = [];
+// Load tracking data with retry mechanism
+function loadTrackingDataWithRetry(tabId, retryCount = 0) {
+  console.log(`Loading tracking data for tab ${tabId} (attempt ${retryCount + 1})`);
   
   // Show loading state
   totalRequestsElement.textContent = "...";
@@ -261,61 +269,117 @@ function loadTrackingData(tabId) {
   providersContainer.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i>Loading data...</div>';
   requestsContainer.innerHTML = '<div class="loading-spinner"><i class="fas fa-circle-notch fa-spin"></i>Loading data...</div>';
   
-  // Get tracking data from the background page
-  chrome.runtime.sendMessage({
-    action: 'getTrackingData',
-    tabId: tabId,
-    hostname: hostname
-  }, (response) => {
-    // Check for Chrome runtime errors first
-    if (chrome.runtime.lastError) {
-      console.error('Error loading tracking data:', chrome.runtime.lastError);
-      handleDataLoadError();
+  // Load the data
+  try {
+    loadTrackingData(tabId);
+  } catch (error) {
+    console.error('Error loading tracking data:', error);
+    
+    // Retry up to 2 times with increasing delay
+    if (retryCount < 2) {
+      const delay = (retryCount + 1) * 500; // 500ms, then 1000ms
+      console.log(`Retrying in ${delay}ms...`);
+      
+      setTimeout(() => {
+        loadTrackingDataWithRetry(tabId, retryCount + 1);
+      }, delay);
+    } else {
+      handleDataLoadError('Failed to load data after multiple attempts');
+    }
+  }
+}
+
+// Load tracking data for the current tab
+function loadTrackingData(tabId) {
+  try {
+    // Validate the current URL
+    if (!currentPageUrl) {
+      console.error('Current page URL is not available');
+      handleDataLoadError('No URL information available');
       return;
     }
     
-    if (response && response.success && response.requests) {
-      // Use the data from the background page
-      currentTabRequests = response.requests;
-      
-      // Check if we got any data - if not, it might be a persistence issue
-      if (currentTabRequests.length === 0) {
-        console.log('No tracking data available, checking if this is normal...');
-        // We might want to try again once to see if it's just a timing issue
-        setTimeout(() => {
-          retryLoadingData(tabId, hostname);
-        }, 500);
+    // Get the current hostname from the URL
+    let hostname;
+    try {
+      hostname = new URL(currentPageUrl).hostname;
+    } catch (error) {
+      console.error('Invalid URL format:', currentPageUrl, error);
+      handleDataLoadError('Invalid URL format');
+      return;
+    }
+    
+    // Ensure hostname is valid
+    if (!hostname) {
+      console.error('Could not extract hostname from URL:', currentPageUrl);
+      handleDataLoadError('Could not determine website hostname');
+      return;
+    }
+    
+    console.log(`Loading tracking data for tab ${tabId}, hostname: ${hostname}`);
+    
+    // Reset any cached data
+    currentTabRequests = [];
+    
+    // Get tracking data from the background page
+    chrome.runtime.sendMessage({
+      action: 'getTrackingData',
+      tabId: tabId,
+      hostname: hostname
+    }, (response) => {
+      // Check for Chrome runtime errors first
+      if (chrome.runtime.lastError) {
+        console.error('Error loading tracking data:', chrome.runtime.lastError);
+        handleDataLoadError('Browser communication error');
         return;
       }
       
-      // Update stats
-      totalRequestsElement.textContent = currentTabRequests.length;
-      
-      // Get unique providers
-      const uniqueProviders = new Set();
-      currentTabRequests.forEach(request => {
-        request.providers.forEach(provider => uniqueProviders.add(provider));
-      });
-      
-      uniqueProvidersElement.textContent = uniqueProviders.size;
-      
-      // Render providers
-      renderProviders(uniqueProviders);
-      
-      // Render recent requests
-      renderRequests(currentTabRequests);
-    } else {
-      // Error or no data
-      const errorMessage = response?.error || 'Unknown error loading tracking data';
-      console.error('Error loading tracking data:', errorMessage);
-      handleDataLoadError();
-    }
-  });
+      if (response && response.success && response.requests) {
+        // Use the data from the background page
+        currentTabRequests = response.requests;
+        
+        // Check if we got any data - if not, it might be a persistence issue
+        if (currentTabRequests.length === 0) {
+          console.log('No tracking data available, checking if this is normal...');
+          // We might want to try again once to see if it's just a timing issue
+          setTimeout(() => {
+            retryLoadingData(tabId, hostname);
+          }, 500);
+          return;
+        }
+        
+        // Update stats
+        totalRequestsElement.textContent = currentTabRequests.length;
+        
+        // Get unique providers
+        const uniqueProviders = new Set();
+        currentTabRequests.forEach(request => {
+          request.providers.forEach(provider => uniqueProviders.add(provider));
+        });
+        
+        uniqueProvidersElement.textContent = uniqueProviders.size;
+        
+        // Render providers
+        renderProviders(uniqueProviders);
+        
+        // Render recent requests
+        renderRequests(currentTabRequests);
+      } else {
+        // Error or no data
+        const errorMessage = response?.error || 'Unknown error loading tracking data';
+        console.error('Error loading tracking data:', errorMessage);
+        handleDataLoadError(errorMessage);
+      }
+    });
+  } catch (error) {
+    console.error('Unexpected error in loadTrackingData:', error);
+    handleDataLoadError('Unexpected error loading data');
+  }
 }
 
 // Function to handle error loading data
-function handleDataLoadError() {
-  console.error('Failed to load tracking data');
+function handleDataLoadError(errorMessage = 'Failed to load tracking data') {
+  console.error(errorMessage);
   totalRequestsElement.textContent = "0";
   uniqueProvidersElement.textContent = "0";
   providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
@@ -324,40 +388,59 @@ function handleDataLoadError() {
 
 // Retry loading data once
 function retryLoadingData(tabId, hostname) {
-  console.log('Retrying data load...');
-  chrome.runtime.sendMessage({
-    action: 'getTrackingData',
-    tabId: tabId,
-    hostname: hostname
-  }, (response) => {
-    if (chrome.runtime.lastError || !response || !response.success) {
-      console.error('Retry failed:', chrome.runtime.lastError || 'No valid response');
-      handleDataLoadError();
-      return;
-    }
-    
-    currentTabRequests = response.requests || [];
-    
-    // Update UI
-    totalRequestsElement.textContent = currentTabRequests.length;
-    
-    const uniqueProviders = new Set();
-    currentTabRequests.forEach(request => {
-      request.providers.forEach(provider => uniqueProviders.add(provider));
+  console.log(`Retrying data load for tab ${tabId}, hostname: ${hostname}...`);
+  
+  try {
+    chrome.runtime.sendMessage({
+      action: 'getTrackingData',
+      tabId: tabId,
+      hostname: hostname
+    }, (response) => {
+      // Check for runtime errors
+      if (chrome.runtime.lastError) {
+        console.error('Retry failed due to runtime error:', chrome.runtime.lastError);
+        handleDataLoadError('Communication error during retry');
+        return;
+      }
+      
+      // Check for invalid response
+      if (!response || !response.success) {
+        console.error('Retry failed:', !response ? 'No response' : response.error || 'Invalid response');
+        handleDataLoadError('Failed to retrieve data');
+        return;
+      }
+      
+      // Process the data
+      currentTabRequests = response.requests || [];
+      
+      // Update UI with results
+      totalRequestsElement.textContent = currentTabRequests.length;
+      
+      const uniqueProviders = new Set();
+      currentTabRequests.forEach(request => {
+        if (request && request.providers) {
+          request.providers.forEach(provider => uniqueProviders.add(provider));
+        }
+      });
+      
+      uniqueProvidersElement.textContent = uniqueProviders.size;
+      
+      if (currentTabRequests.length === 0) {
+        // Still no data, show proper empty state (this is likely a valid empty state, not an error)
+        console.log('No tracking data found after retry - showing empty state');
+        providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
+        requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
+      } else {
+        // We have data, render it
+        console.log(`Successfully loaded ${currentTabRequests.length} requests on retry`);
+        renderProviders(uniqueProviders);
+        renderRequests(currentTabRequests);
+      }
     });
-    
-    uniqueProvidersElement.textContent = uniqueProviders.size;
-    
-    if (currentTabRequests.length === 0) {
-      // Still no data, show proper empty state
-      providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
-      requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
-    } else {
-      // Render the data
-      renderProviders(uniqueProviders);
-      renderRequests(currentTabRequests);
-    }
-  });
+  } catch (error) {
+    console.error('Unexpected error during data load retry:', error);
+    handleDataLoadError('Error during data retry');
+  }
 }
 
 // Render the list of detected providers
