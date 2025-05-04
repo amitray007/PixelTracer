@@ -16,6 +16,7 @@ const WATCH_PATTERNS = [
   'popup.html',
   'popup.js',
   'popup.css',
+  'liveview.css',
   'trackingProviders.js',
   'images/**/*'
 ];

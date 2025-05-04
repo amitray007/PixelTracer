@@ -22,21 +22,40 @@ const trackingDataStore = {
   
   // Get all requests for a tab
   getTabRequests(tabId) {
+    // First check if we have data in memory
+    if (!this.tabs[tabId] || this.tabs[tabId].length === 0) {
+      // If not, try to load from storage directly in a synchronous way
+      // We'll return the cached data but initiate a refresh for next time
+      this.loadFromStorage();
+    }
     return this.tabs[tabId] || [];
   },
   
   // Get requests for a tab filtered by current page load time
   getCurrentPageRequests(tabId, hostname) {
-    const requests = this.getTabRequests(tabId);
-    
-    // If no requests, return empty array
-    if (!requests.length) return [];
-    
-    // Find the page load time
-    const pageLoadTime = this.findPageOpenTime(requests, hostname) || (Date.now() - 60000);
-    
-    // Filter and return
-    return requests.filter(req => req.timestamp >= pageLoadTime);
+    // Ensure we have the latest data
+    return new Promise((resolve) => {
+      // Try to get data synchronously first
+      const requests = this.getTabRequests(tabId);
+      
+      // If no requests, return empty array
+      if (requests.length === 0) {
+        // Try to load data from storage directly for this specific tab
+        chrome.storage.local.get(['trackedRequests'], (result) => {
+          if (result.trackedRequests && result.trackedRequests[tabId]) {
+            this.tabs[tabId] = result.trackedRequests[tabId];
+            const reloadedRequests = this.tabs[tabId];
+            const pageLoadTime = this.findPageOpenTime(reloadedRequests, hostname) || (Date.now() - 60000);
+            resolve(reloadedRequests.filter(req => req.timestamp >= pageLoadTime));
+          } else {
+            resolve([]);
+          }
+        });
+      } else {
+        const pageLoadTime = this.findPageOpenTime(requests, hostname) || (Date.now() - 60000);
+        resolve(requests.filter(req => req.timestamp >= pageLoadTime));
+      }
+    });
   },
   
   // Find the page load time using the same logic used in the popup and content script
@@ -113,23 +132,59 @@ const trackingDataStore = {
     chrome.storage.local.get(['trackedRequests'], (result) => {
       if (result.trackedRequests) {
         this.tabs = result.trackedRequests;
+        console.log(`Loaded tracking data from storage: ${Object.keys(this.tabs).length} tabs`);
       }
     });
   },
   
   // Save data to storage
   saveToStorage() {
-    chrome.storage.local.set({ trackedRequests: this.tabs });
+    chrome.storage.local.set({ trackedRequests: this.tabs }, () => {
+      if (chrome.runtime.lastError) {
+        console.error('Error saving tracking data to storage:', chrome.runtime.lastError);
+      } else {
+        console.log(`Saved tracking data to storage: ${Object.keys(this.tabs).length} tabs`);
+      }
+    });
   }
 };
 
+// Default settings initialization
+function initializeDefaultSettings() {
+  chrome.storage.local.get(['pixelTracerSettings', 'pixelTracerTheme'], (result) => {
+    // Initialize settings if they don't exist
+    if (!result.pixelTracerSettings) {
+      chrome.storage.local.set({
+        pixelTracerSettings: {
+          liveViewEnabled: false
+        }
+      });
+    }
+    
+    // Initialize theme if it doesn't exist (default to light)
+    if (!result.pixelTracerTheme) {
+      chrome.storage.local.set({
+        pixelTracerTheme: 'light'
+      });
+    }
+  });
+}
+
+// Add an event listener for when the extension is activated (e.g., popup opened)
+chrome.runtime.onStartup.addListener(() => {
+  console.log('Extension startup - loading stored tracking data');
+  trackingDataStore.loadFromStorage();
+});
+
 // Load tracking data when extension starts
 trackingDataStore.loadFromStorage();
+initializeDefaultSettings();
 
 // Listen for extension installation/update
 chrome.runtime.onInstalled.addListener(() => {
   console.log('PixelTracer installed or updated - clearing stored tracking data');
   trackingDataStore.clearAllData();
+  initializeDefaultSettings();
 });
 
 // Listen for tab updates (including refreshes)
@@ -251,13 +306,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     
     if (tabId && hostname) {
       // Get filtered requests for the current page load
-      const requests = trackingDataStore.getCurrentPageRequests(tabId, hostname);
-      sendResponse({ success: true, requests });
+      trackingDataStore.getCurrentPageRequests(tabId, hostname).then(requests => {
+        sendResponse({ success: true, requests });
+      });
+      return true; // indicate we will respond asynchronously
     } else {
       sendResponse({ success: false, error: 'Invalid parameters' });
+      return true;
     }
-    
-    return true;
   }
   
   // Handle dataCleared event
@@ -311,6 +367,33 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       sendResponse({ success: false, error: 'Invalid parameters' });
     }
     
+    return true;
+  }
+  
+  // Handle themeChanged message from popup
+  if (message.action === 'themeChanged') {
+    // Store the theme preference
+    chrome.storage.local.set({ pixelTracerTheme: message.theme });
+    
+    // Notify all tabs about the theme change
+    chrome.tabs.query({}, (tabs) => {
+      tabs.forEach(tab => {
+        // Skip the sender tab as it already knows
+        if (sender.tab && sender.tab.id === tab.id) return;
+        
+        // Only send to http/https pages
+        if (tab.url && (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'themeChanged',
+            theme: message.theme
+          }).catch(() => {
+            // Ignore errors - content script may not be loaded on this tab
+          });
+        }
+      });
+    });
+    
+    sendResponse({ success: true });
     return true;
   }
   

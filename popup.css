@@ -1373,4 +1373,455 @@ pre {
 .category-social.event-sequence-item {
   border-left-color: #9b59b6;
   background-color: #ecf0f1;
+}
+
+/* Dark mode styles */
+body.dark-mode {
+  color: #e0e0e0;
+  background-color: #1e1e1e;
+}
+
+body.dark-mode .container {
+  background-color: #2c2c2c;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode header {
+  border-bottom-color: #444;
+}
+
+body.dark-mode .header-right button {
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode h1 {
+  color: #f5f5f5;
+}
+
+body.dark-mode .subtitle {
+  color: #aaa;
+}
+
+body.dark-mode .stats {
+  background-color: #222;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+}
+
+body.dark-mode .stat-item:first-child::after {
+  background-color: #444;
+}
+
+body.dark-mode .stat-value {
+  color: #2ecc71;
+}
+
+body.dark-mode .stat-label {
+  color: #bbb;
+}
+
+body.dark-mode h2 {
+  color: #f5f5f5;
+}
+
+body.dark-mode .section-actions button {
+  color: #3498db;
+}
+
+body.dark-mode .section-actions button:hover {
+  color: #5dade2;
+}
+
+body.dark-mode .provider-item, 
+body.dark-mode .request-item {
+  background-color: #333;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .provider-name,
+body.dark-mode .request-title {
+  color: #f5f5f5;
+}
+
+body.dark-mode .provider-description {
+  color: #bbb;
+}
+
+body.dark-mode .provider-category {
+  color: #eee;
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .request-url {
+  background-color: #222;
+  color: #bbb;
+}
+
+body.dark-mode .request-time {
+  color: #aaa;
+}
+
+body.dark-mode .details-group {
+  background-color: #333;
+  border: 1px solid #444;
+}
+
+body.dark-mode .details-group-title {
+  background-color: #222;
+  color: #f5f5f5;
+  border-bottom-color: #444;
+}
+
+body.dark-mode .details-key {
+  color: #f5f5f5;
+}
+
+body.dark-mode .details-value {
+  color: #ddd;
+}
+
+body.dark-mode .details-item {
+  border-bottom-color: #444;
+}
+
+body.dark-mode .view-details-btn {
+  background-color: #2c3e50;
+  color: #f5f5f5;
+}
+
+body.dark-mode .view-details-btn:hover {
+  background-color: #34495e;
+}
+
+body.dark-mode .empty-state {
+  color: #aaa;
+}
+
+body.dark-mode .filter-bar,
+body.dark-mode .filter-group {
+  background-color: #333;
+}
+
+body.dark-mode .filter-group select {
+  background-color: #444;
+  color: #f5f5f5;
+  border-color: #555;
+}
+
+body.dark-mode footer {
+  border-top-color: #444;
+}
+
+body.dark-mode button {
+  background-color: #333;
+  border-color: #444;
+  color: #e0e0e0;
+}
+
+body.dark-mode button:hover {
+  background-color: #444;
+}
+
+body.dark-mode .detail-window {
+  background-color: #2c2c2c;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode .detail-header {
+  background-color: #222;
+}
+
+body.dark-mode .detail-header h3 {
+  color: #f5f5f5;
+}
+
+body.dark-mode .detail-tabs {
+  background-color: #222;
+  border-bottom-color: #444;
+}
+
+body.dark-mode .tab-button {
+  color: #aaa;
+}
+
+body.dark-mode .tab-button:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .tab-button.active {
+  color: #3498db;
+  border-bottom-color: #3498db;
+}
+
+body.dark-mode pre {
+  background-color: #222;
+  color: #ddd;
+  border-color: #444;
+}
+
+body.dark-mode .param-table th {
+  background-color: #222;
+  color: #f5f5f5;
+}
+
+body.dark-mode .param-table td {
+  color: #ddd;
+}
+
+body.dark-mode .param-table th, 
+body.dark-mode .param-table td {
+  border-bottom-color: #444;
+}
+
+body.dark-mode .param-table tr:hover td {
+  background-color: #3a3a3a;
+}
+
+body.dark-mode ::-webkit-scrollbar-track {
+  background: #333;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb {
+  background-color: #666;
+}
+
+body.dark-mode ::-webkit-scrollbar-thumb:hover {
+  background-color: #777;
+}
+
+body.dark-mode .export-menu {
+  background-color: #333;
+  border-color: #444;
+  box-shadow: 0 5px 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .export-menu-item {
+  color: #f5f5f5;
+}
+
+body.dark-mode .export-menu-item:hover {
+  background-color: #444;
+}
+
+/* Theme toggle button specific styles */
+#theme-toggle-btn {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  border-radius: 50%;
+  background-color: transparent;
+  transition: background-color 0.3s, color 0.3s;
+}
+
+#theme-toggle-btn:hover {
+  background-color: rgba(0, 0, 0, 0.1);
+}
+
+body.dark-mode #theme-toggle-btn {
+  color: #f9d71c;
+}
+
+body.dark-mode #theme-toggle-btn:hover {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+/* Make sure all text is visible in both modes */
+body.dark-mode .request-badge {
+  color: #222;
+}
+
+/* Ensure color contrast for event badges */
+body.dark-mode .pixeltracer-event-badge {
+  color: #222;
+}
+
+/* Add dark mode styles for reports section */
+body.dark-mode .report-section {
+  border-bottom-color: #444;
+}
+
+body.dark-mode .report-section-title {
+  color: #f5f5f5;
+}
+
+body.dark-mode .report-stats {
+  background-color: #333;
+  border: 1px solid #444;
+}
+
+body.dark-mode .report-stat-item {
+  color: #f5f5f5;
+}
+
+body.dark-mode .report-stat-value {
+  color: #3498db;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+}
+
+body.dark-mode .report-stat-label {
+  color: #bbb;
+}
+
+body.dark-mode .report-timeline {
+  background-color: #333;
+  border: 1px solid #444;
+}
+
+body.dark-mode .report-timeline-item {
+  border-bottom: 1px solid #444;
+}
+
+body.dark-mode .report-timeline-item:last-child {
+  border-bottom: none;
+}
+
+body.dark-mode .report-timeline-label {
+  color: #bbb;
+}
+
+body.dark-mode .report-timeline-value {
+  color: #f5f5f5;
+}
+
+/* Fix the table container in dark mode */
+body.dark-mode .report-table-container {
+  border-color: #444;
+  background-color: #2c2c2c;
+}
+
+/* Fix table styles in dark mode */
+body.dark-mode .report-table {
+  color: #f5f5f5;
+}
+
+body.dark-mode .report-table th {
+  background-color: #222;
+  color: #f5f5f5;
+  border-bottom: 2px solid #444;
+}
+
+body.dark-mode .report-table td {
+  color: #e0e0e0;
+  border-bottom-color: #444;
+}
+
+body.dark-mode .report-table tr:hover td {
+  background-color: #3a3a3a;
+}
+
+/* Ensure table cells have sufficient contrast */
+body.dark-mode .report-table tr td {
+  background-color: #2c2c2c;
+}
+
+/* Add styling for timeline graph in dark mode */
+body.dark-mode .report-timeline-graph {
+  background-color: #333;
+  border-color: #444;
+}
+
+body.dark-mode .timeline-bar-segment {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+body.dark-mode .timeline-label {
+  color: #bbb;
+}
+
+body.dark-mode .timeline-legend {
+  border-top: 1px solid #444;
+  padding-top: 10px;
+}
+
+body.dark-mode .legend-label {
+  color: #bbb;
+}
+
+/* Style the event sequence in dark mode */
+body.dark-mode .report-event-sequence {
+  background-color: #333;
+  border: 1px solid #444;
+}
+
+body.dark-mode .event-sequence-item {
+  border-bottom: 1px solid #444;
+  background-color: #2c2c2c !important;
+}
+
+body.dark-mode .event-time {
+  color: #bbb;
+}
+
+body.dark-mode .event-provider {
+  color: #f5f5f5;
+}
+
+body.dark-mode .event-type {
+  color: #f5f5f5;
+  background-color: #222;
+}
+
+/* Fix privacy score in dark mode */
+body.dark-mode .privacy-score-container {
+  background-color: #333;
+  border: 1px solid #444;
+}
+
+body.dark-mode .privacy-score-circle {
+  box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.5);
+}
+
+body.dark-mode .privacy-score-inner {
+  background-color: #222;
+  box-shadow: 0 0 15px rgba(0, 0, 0, 0.3);
+}
+
+body.dark-mode .privacy-score-value {
+  color: #f5f5f5;
+}
+
+body.dark-mode .privacy-score-label {
+  color: #bbb;
+}
+
+body.dark-mode .privacy-risk-level {
+  color: #f5f5f5;
+}
+
+body.dark-mode .privacy-factors {
+  background-color: #333;
+}
+
+body.dark-mode .privacy-factor {
+  border-bottom: 1px solid #444;
+  background-color: #2c2c2c;
+}
+
+body.dark-mode .privacy-factor:last-child {
+  border-bottom: none;
+}
+
+body.dark-mode .privacy-factor-icon {
+  color: #3498db;
+  background-color: rgba(52, 152, 219, 0.1);
+}
+
+body.dark-mode .privacy-factor-icon.warning {
+  color: #e74c3c;
+  background-color: rgba(231, 76, 60, 0.1);
+}
+
+body.dark-mode .privacy-factor-title {
+  color: #f5f5f5;
+}
+
+body.dark-mode .privacy-factor-value {
+  color: #3498db;
+}
+
+body.dark-mode .privacy-factor-description {
+  color: #bbb;
 } 

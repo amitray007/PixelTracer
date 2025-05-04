@@ -9,6 +9,7 @@ const clearDataButton = document.getElementById('clear-data');
 const exportDataButton = document.getElementById('export-data');
 const liveViewButton = document.getElementById('live-view-btn');
 const reportsButton = document.getElementById('reports-btn');
+const themeToggleButton = document.getElementById('theme-toggle-btn');
 const detailWindow = document.getElementById('detail-window');
 const reportsWindow = document.getElementById('reports-window');
 const detailOverlay = document.getElementById('detail-overlay');
@@ -24,6 +25,7 @@ const expandAllRequestsButton = document.getElementById('expand-all-requests');
 let isLiveViewEnabled = false;
 let currentTabRequests = [];
 let currentPageUrl = '';
+let isDarkMode = false;
 
 // Get the current tab
 async function getCurrentTab() {
@@ -38,6 +40,9 @@ async function initPopup() {
     const currentTab = await getCurrentTab();
     currentPageUrl = currentTab.url;
     console.log('Current page URL:', currentPageUrl);
+    
+    // Load theme first
+    await loadThemePreference();
     
     // Setup all button event listeners
     setupEventListeners();
@@ -75,6 +80,48 @@ async function initPopup() {
   }
 }
 
+// Load theme preference from storage
+async function loadThemePreference() {
+  return new Promise((resolve) => {
+    chrome.storage.local.get(['pixelTracerTheme'], (result) => {
+      isDarkMode = result.pixelTracerTheme === 'dark';
+      applyTheme();
+      resolve();
+    });
+  });
+}
+
+// Apply the current theme
+function applyTheme() {
+  if (isDarkMode) {
+    document.body.classList.add('dark-mode');
+    themeToggleButton.innerHTML = '<i class="fas fa-sun"></i>';
+  } else {
+    document.body.classList.remove('dark-mode');
+    themeToggleButton.innerHTML = '<i class="fas fa-moon"></i>';
+  }
+}
+
+// Toggle the theme
+async function toggleTheme() {
+  isDarkMode = !isDarkMode;
+  
+  // Update theme in storage
+  chrome.storage.local.set({ pixelTracerTheme: isDarkMode ? 'dark' : 'light' });
+  
+  // Apply the theme
+  applyTheme();
+  
+  // Notify active tabs about the theme change
+  const currentTab = await getCurrentTab();
+  if (currentTab) {
+    chrome.tabs.sendMessage(currentTab.id, { 
+      action: 'themeChanged',
+      theme: isDarkMode ? 'dark' : 'light'
+    }).catch(err => console.log('Error sending theme change message:', err));
+  }
+}
+
 // Setup all event listeners
 function setupEventListeners() {
   console.log('Setting up event listeners');
@@ -84,6 +131,7 @@ function setupEventListeners() {
   if (!exportDataButton) console.error('Export data button not found');
   if (!liveViewButton) console.error('Live view button not found');
   if (!reportsButton) console.error('Reports button not found');
+  if (!themeToggleButton) console.error('Theme toggle button not found');
   if (!detailCloseBtn) console.error('Detail close button not found');
   if (!reportsCloseBtn) console.error('Reports close button not found');
   if (!detailOverlay) console.error('Detail overlay not found');
@@ -98,6 +146,7 @@ function setupEventListeners() {
   }
   if (liveViewButton) liveViewButton.addEventListener('click', toggleLiveView);
   if (reportsButton) reportsButton.addEventListener('click', showReports);
+  if (themeToggleButton) themeToggleButton.addEventListener('click', toggleTheme);
   if (detailCloseBtn) detailCloseBtn.addEventListener('click', closeDetailWindow);
   if (reportsCloseBtn) reportsCloseBtn.addEventListener('click', closeReports);
   if (detailOverlay) {
@@ -190,15 +239,36 @@ function loadTrackingData(tabId) {
   totalRequestsElement.textContent = "...";
   uniqueProvidersElement.textContent = "...";
   
+  // Add a loading indicator to the containers
+  providersContainer.innerHTML = '<div class="loading-spinner">Loading data...</div>';
+  requestsContainer.innerHTML = '<div class="loading-spinner">Loading data...</div>';
+  
   // Get tracking data from the background page
   chrome.runtime.sendMessage({
     action: 'getTrackingData',
     tabId: tabId,
     hostname: hostname
   }, (response) => {
+    // Check for Chrome runtime errors first
+    if (chrome.runtime.lastError) {
+      console.error('Error loading tracking data:', chrome.runtime.lastError);
+      handleDataLoadError();
+      return;
+    }
+    
     if (response && response.success && response.requests) {
       // Use the data from the background page
       currentTabRequests = response.requests;
+      
+      // Check if we got any data - if not, it might be a persistence issue
+      if (currentTabRequests.length === 0) {
+        console.log('No tracking data available, checking if this is normal...');
+        // We might want to try again once to see if it's just a timing issue
+        setTimeout(() => {
+          retryLoadingData(tabId, hostname);
+        }, 500);
+        return;
+      }
       
       // Update stats
       totalRequestsElement.textContent = currentTabRequests.length;
@@ -217,11 +287,57 @@ function loadTrackingData(tabId) {
       // Render recent requests
       renderRequests(currentTabRequests);
     } else {
-      // Fallback: Show empty state
-      totalRequestsElement.textContent = "0";
-      uniqueProvidersElement.textContent = "0";
+      // Error or no data
+      const errorMessage = response?.error || 'Unknown error loading tracking data';
+      console.error('Error loading tracking data:', errorMessage);
+      handleDataLoadError();
+    }
+  });
+}
+
+// Handle data loading errors
+function handleDataLoadError() {
+  // Show error state
+  totalRequestsElement.textContent = "0";
+  uniqueProvidersElement.textContent = "0";
+  providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>Could not load tracking data. Try refreshing the page.</div>';
+  requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i>Could not load tracking data. Try refreshing the page.</div>';
+}
+
+// Retry loading data once
+function retryLoadingData(tabId, hostname) {
+  console.log('Retrying data load...');
+  chrome.runtime.sendMessage({
+    action: 'getTrackingData',
+    tabId: tabId,
+    hostname: hostname
+  }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.success) {
+      console.error('Retry failed:', chrome.runtime.lastError || 'No valid response');
+      handleDataLoadError();
+      return;
+    }
+    
+    currentTabRequests = response.requests || [];
+    
+    // Update UI
+    totalRequestsElement.textContent = currentTabRequests.length;
+    
+    const uniqueProviders = new Set();
+    currentTabRequests.forEach(request => {
+      request.providers.forEach(provider => uniqueProviders.add(provider));
+    });
+    
+    uniqueProvidersElement.textContent = uniqueProviders.size;
+    
+    if (currentTabRequests.length === 0) {
+      // Still no data, show proper empty state
       providersContainer.innerHTML = '<div class="empty-state">No tracking providers detected yet</div>';
       requestsContainer.innerHTML = '<div class="empty-state">No tracking requests detected yet</div>';
+    } else {
+      // Render the data
+      renderProviders(uniqueProviders);
+      renderRequests(currentTabRequests);
     }
   });
 }
@@ -1533,6 +1649,51 @@ function formatProviderNameFromId(providerId) {
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(' ');
 }
+
+// Add CSS for the loading spinner
+document.addEventListener('DOMContentLoaded', () => {
+  // Add spinner styles
+  const style = document.createElement('style');
+  style.textContent = `
+    .loading-spinner {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 80px;
+      color: #3498db;
+      font-size: 14px;
+      position: relative;
+      padding-left: 24px;
+    }
+    
+    .loading-spinner:before {
+      content: '';
+      box-sizing: border-box;
+      position: absolute;
+      left: 0;
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #ccc;
+      border-top-color: #3498db;
+      animation: spinner .6s linear infinite;
+    }
+    
+    @keyframes spinner {
+      to {transform: rotate(360deg);}
+    }
+    
+    body.dark-mode .loading-spinner {
+      color: #5dade2;
+    }
+    
+    body.dark-mode .loading-spinner:before {
+      border-color: #444;
+      border-top-color: #5dade2;
+    }
+  `;
+  document.head.appendChild(style);
+});
 
 // Event listeners
 document.addEventListener('DOMContentLoaded', initPopup); 

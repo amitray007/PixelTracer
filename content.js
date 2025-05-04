@@ -10,12 +10,14 @@ let requestsContainer = null;
 let requestsList = [];
 let isLiveViewMinimized = false; // Track minimized state
 let detailWindowEl = null; // Reference to the detail window element
+let detailOverlayEl = null; // Reference to the detail overlay element
 let currentTabRequests = []; // Store the current tab's requests
 let currentTabId = null; // Store the current tab ID
 let currentUrl = ''; // Store the current page URL
 const MAX_DISPLAYED_REQUESTS = 100; // Increased to keep more requests in live view
 let trackingProvidersData = {}; // Will store provider data from background script
 let isFirstDataLoad = true; // Flag to track initial data load
+let isDarkMode = false; // Track theme mode
 
 // Default filter settings
 let filterPreferences = {
@@ -43,32 +45,37 @@ function init() {
     }
   });
   
-  // First load filter preferences, then initialize the UI
-  loadFilterPreferences().then(() => {
-    // Now initialize the Live View (if enabled)
-    chrome.storage.local.get(['pixelTracerSettings', 'liveViewState'], (result) => {
-      const settings = result.pixelTracerSettings || {};
-      const liveViewState = result.liveViewState || {};
-      
-      // If Live View is globally enabled and not explicitly closed for this domain, show it
-      if (settings.liveViewEnabled && liveViewState[hostname] !== 'closed') {
-        liveViewEnabled = true;
-        isLiveViewMinimized = liveViewState[hostname] === 'minimized';
-        createLiveView();
+  // Load theme preference first
+  chrome.storage.local.get(['pixelTracerTheme'], (result) => {
+    isDarkMode = result.pixelTracerTheme === 'dark';
+    
+    // Then load filter preferences and initialize the UI
+    loadFilterPreferences().then(() => {
+      // Now initialize the Live View (if enabled)
+      chrome.storage.local.get(['pixelTracerSettings', 'liveViewState'], (result) => {
+        const settings = result.pixelTracerSettings || {};
+        const liveViewState = result.liveViewState || {};
         
-        // Load existing tracking data once we have the tab ID
-        if (currentTabId) {
-          loadTrackingData();
-        } else {
-          // Wait for tab ID to be available
-          const checkTabId = setInterval(() => {
-            if (currentTabId) {
-              loadTrackingData();
-              clearInterval(checkTabId);
-            }
-          }, 100);
+        // If Live View is globally enabled and not explicitly closed for this domain, show it
+        if (settings.liveViewEnabled && liveViewState[hostname] !== 'closed') {
+          liveViewEnabled = true;
+          isLiveViewMinimized = liveViewState[hostname] === 'minimized';
+          createLiveView();
+          
+          // Load existing tracking data once we have the tab ID
+          if (currentTabId) {
+            loadTrackingData();
+          } else {
+            // Wait for tab ID to be available
+            const checkTabId = setInterval(() => {
+              if (currentTabId) {
+                loadTrackingData();
+                clearInterval(checkTabId);
+              }
+            }, 100);
+          }
         }
-      }
+      });
     });
   });
   
@@ -142,21 +149,103 @@ function loadTrackingData() {
   // Reset the requests array to prevent accumulation
   currentTabRequests = [];
   
+  // Make sure requestsContainer is initialized if Live View is active
+  if (liveViewEnabled && liveViewEl && !requestsContainer) {
+    requestsContainer = document.getElementById('pixeltracer-requests-container');
+  }
+  
+  // Add loading state to the UI if visible
+  if (liveViewEnabled && liveViewEl && requestsContainer) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.textContent = "Loading tracking data...";
+      emptyState.style.display = 'flex';
+    }
+  }
+  
   // Request data from the background script which maintains the central store
   chrome.runtime.sendMessage({
     action: 'getTrackingData',
     tabId: currentTabId,
     hostname: hostname
   }, (response) => {
+    // Check for Chrome runtime errors
+    if (chrome.runtime.lastError) {
+      console.error('Error loading tracking data:', chrome.runtime.lastError);
+      showLoadingError();
+      return;
+    }
+    
     if (response && response.success && response.requests) {
       // Update our local state
       currentTabRequests = response.requests;
       
+      // Make sure we have the requests container reference
+      if (liveViewEnabled && liveViewEl && !requestsContainer) {
+        requestsContainer = document.getElementById('pixeltracer-requests-container');
+      }
+      
       // Only update UI if Live View is visible
       if (liveViewEnabled && liveViewEl) {
+        console.log('Updating Live View with', currentTabRequests.length, 'requests');
         updateStats();
         refreshRequestList();
       }
+    } else {
+      // Try once more after a short delay (may be a timing issue)
+      setTimeout(() => retryLoadTrackingData(hostname), 500);
+    }
+  });
+}
+
+/**
+ * Show loading error in the Live View
+ */
+function showLoadingError() {
+  if (liveViewEnabled && liveViewEl) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Failed to load tracking data';
+      emptyState.style.display = 'flex';
+    }
+  }
+}
+
+/**
+ * Retry loading tracking data once
+ */
+function retryLoadTrackingData(hostname) {
+  console.log('Retrying to load tracking data...');
+  
+  // Make sure requestsContainer is initialized if needed
+  if (liveViewEnabled && liveViewEl && !requestsContainer) {
+    requestsContainer = document.getElementById('pixeltracer-requests-container');
+  }
+  
+  chrome.runtime.sendMessage({
+    action: 'getTrackingData',
+    tabId: currentTabId,
+    hostname: hostname
+  }, (response) => {
+    if (chrome.runtime.lastError || !response || !response.success) {
+      console.error('Retry failed:', chrome.runtime.lastError || 'Invalid response');
+      showLoadingError();
+      return;
+    }
+    
+    // Update our local state
+    currentTabRequests = response.requests || [];
+    
+    // Make sure we have the requests container reference
+    if (liveViewEnabled && liveViewEl && !requestsContainer) {
+      requestsContainer = document.getElementById('pixeltracer-requests-container');
+    }
+    
+    // Only update UI if Live View is visible
+    if (liveViewEnabled && liveViewEl) {
+      console.log('Updating Live View with', currentTabRequests.length, 'requests after retry');
+      updateStats();
+      refreshRequestList();
     }
   });
 }
@@ -330,6 +419,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     removeLiveView();
     liveViewEnabled = false;
     saveLiveViewState('closed');
+    sendResponse({ success: true });
+  } else if (message.action === 'themeChanged') {
+    // Update the theme for the Live View
+    isDarkMode = message.theme === 'dark';
+    updateLiveViewTheme();
     sendResponse({ success: true });
   } else if (message.action === 'refreshTracking') {
     loadTrackingData();
@@ -692,6 +786,10 @@ function makeDraggable(element, handle) {
 // Fill the General tab with request information
 function fillGeneralTab(providerId, request) {
   const content = document.getElementById('pixeltracer-general-content');
+  if (!content) {
+    console.error('General tab content element not found');
+    return;
+  }
   
   // Get provider information from stored data or request from background
   let provider = trackingProvidersData[providerId];
@@ -771,6 +869,10 @@ function fillGeneralTabContent(provider, request, content) {
 // Fill the Event tab with event-specific details
 function fillEventTab(providerId, request) {
   const content = document.getElementById('pixeltracer-event-content');
+  if (!content) {
+    console.error('Event tab content element not found');
+    return;
+  }
   
   chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId }, (response) => {
     if (!response || !response.provider) {
@@ -827,6 +929,10 @@ function fillEventTab(providerId, request) {
 // Fill the Parameters tab with URL parameters
 function fillParamsTab(request) {
   const content = document.getElementById('pixeltracer-params-content');
+  if (!content) {
+    console.error('Parameters tab content element not found');
+    return;
+  }
   
   const params = request.params || {};
   const paramKeys = Object.keys(params);
@@ -866,7 +972,20 @@ function fillParamsTab(request) {
 
 // Fill the Headers tab with request headers
 function fillHeadersTab(request) {
-  const content = document.getElementById('pixeltracer-headers-tab');
+  const content = document.getElementById('pixeltracer-headers-content');
+  
+  if (!content) {
+    console.error('Headers tab content element not found');
+    // Try looking for the parent tab and add the content div if needed
+    const headerTab = document.getElementById('pixeltracer-headers-tab');
+    if (headerTab) {
+      const contentDiv = document.createElement('div');
+      contentDiv.id = 'pixeltracer-headers-content';
+      headerTab.appendChild(contentDiv);
+      return fillHeadersTab(request); // Retry after creating the element
+    }
+    return;
+  }
   
   const headers = request.headers || {};
   const headerKeys = Object.keys(headers);
@@ -906,7 +1025,20 @@ function fillHeadersTab(request) {
 
 // Fill the Payload tab with request payload
 function fillPayloadTab(request) {
-  const content = document.getElementById('pixeltracer-payload-tab');
+  const content = document.getElementById('pixeltracer-payload-content');
+  
+  if (!content) {
+    console.error('Payload tab content element not found');
+    // Try looking for the parent tab and add the content div if needed
+    const payloadTab = document.getElementById('pixeltracer-payload-tab');
+    if (payloadTab) {
+      const contentDiv = document.createElement('div');
+      contentDiv.id = 'pixeltracer-payload-content';
+      payloadTab.appendChild(contentDiv);
+      return fillPayloadTab(request); // Retry after creating the element
+    }
+    return;
+  }
   
   if (!request.payload) {
     content.innerHTML = '<div class="pixeltracer-empty-state">No payload data available</div>';
@@ -1056,7 +1188,9 @@ function createRequestElement(request) {
   `;
   
   // Add click handler to show details
-  requestEl.addEventListener('click', () => {
+  requestEl.addEventListener('click', (e) => {
+    console.log('Request item clicked:', providerId, request);
+    e.stopPropagation();
     showDetailWindow(providerName, providerId, request);
   });
   
@@ -1182,15 +1316,63 @@ observer.observe(document.documentElement, {
   subtree: true
 });
 
-// Create the detail window for viewing request details
-function createDetailWindow() {
-  if (detailWindowEl) {
+// Show the detail window
+function showDetailWindow(providerName, providerId, request) {
+  console.log('Opening detail window for:', providerName, providerId);
+  
+  // Create the detail window if it doesn't exist yet
+  if (!detailWindowEl) {
+    createDetailWindow();
+  }
+  
+  // Make sure we have a valid reference before proceeding
+  if (!detailWindowEl) {
+    console.error('Failed to create or access detail window');
     return;
   }
   
+  // Set title
+  const titleEl = document.getElementById('pixeltracer-detail-title');
+  if (titleEl) {
+    titleEl.textContent = `${providerName} Request Details`;
+  }
+  
+  // Fill tab content
+  fillGeneralTab(providerId, request);
+  fillEventTab(providerId, request);
+  fillParamsTab(request);
+  fillHeadersTab(request);
+  fillPayloadTab(request);
+  
+  // Show the window and overlay
+  detailWindowEl.classList.add('visible');
+  if (detailOverlayEl) {
+    detailOverlayEl.classList.add('visible');
+  }
+  
+  // Set first tab as active
+  setActiveTab('general');
+}
+
+// Function to create the detail window for viewing request details
+function createDetailWindow() {
+  // Remove any existing detail window first
+  if (detailWindowEl) {
+    detailWindowEl.remove();
+  }
+  if (detailOverlayEl) {
+    detailOverlayEl.remove();
+  }
+  
+  // Create new window
   detailWindowEl = document.createElement('div');
   detailWindowEl.id = 'pixeltracer-detail-window';
   detailWindowEl.className = 'pixeltracer-detail-window';
+  
+  // Apply dark mode if enabled
+  if (isDarkMode) {
+    detailWindowEl.classList.add('dark-mode');
+  }
   
   detailWindowEl.innerHTML = `
     <div class="pixeltracer-detail-header">
@@ -1225,418 +1407,56 @@ function createDetailWindow() {
     </div>
   `;
   
-  // Add styles for detail window
-  const style = document.createElement('style');
-  style.textContent = `
-    @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
-    
-    .pixeltracer-detail-window {
-      position: fixed;
-      top: 50%;
-      left: 50%;
-      transform: translate(-50%, -50%) scale(0.9);
-      width: 90%;
-      max-width: 650px;
-      max-height: 80vh;
-      background-color: #fff;
-      border-radius: 8px;
-      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.3);
-      z-index: 9999999;
-      display: flex;
-      flex-direction: column;
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.3s ease;
-      overflow: hidden;
-    }
-    
-    .pixeltracer-detail-window.visible {
-      opacity: 1;
-      visibility: visible;
-      transform: translate(-50%, -50%) scale(1);
-    }
-    
-    .pixeltracer-detail-overlay {
-      position: fixed;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background-color: rgba(0, 0, 0, 0.5);
-      z-index: 9999998;
-      opacity: 0;
-      visibility: hidden;
-      transition: all 0.3s ease;
-    }
-    
-    .pixeltracer-detail-overlay.visible {
-      opacity: 1;
-      visibility: visible;
-    }
-    
-    .pixeltracer-detail-header {
-      background-color: #2c3e50;
-      color: white;
-      padding: 15px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .pixeltracer-detail-header h3 {
-      margin: 0;
-      font-size: 18px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-    }
-    
-    .pixeltracer-detail-header h3 i {
-      margin-right: 8px;
-      color: #3498db;
-    }
-    
-    #pixeltracer-detail-close {
-      background: none;
-      border: none;
-      color: white;
-      font-size: 24px;
-      cursor: pointer;
-      width: 30px;
-      height: 30px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-    }
-    
-    #pixeltracer-detail-close:hover {
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-    
-    .pixeltracer-detail-content {
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      flex: 1;
-    }
-    
-    .pixeltracer-detail-tabs {
-      display: flex;
-      border-bottom: 1px solid #ddd;
-      background-color: #f5f5f5;
-      overflow-x: auto;
-      flex-shrink: 0;
-    }
-    
-    .pixeltracer-tab-button {
-      padding: 12px 16px;
-      border: none;
-      background: none;
-      font-size: 14px;
-      color: #7f8c8d;
-      cursor: pointer;
-      white-space: nowrap;
-      border-bottom: 2px solid transparent;
-    }
-    
-    .pixeltracer-tab-button i {
-      margin-right: 6px;
-    }
-    
-    .pixeltracer-tab-button:hover {
-      background-color: rgba(0, 0, 0, 0.05);
-    }
-    
-    .pixeltracer-tab-button.active {
-      color: #3498db;
-      border-bottom: 2px solid #3498db;
-      font-weight: 500;
-    }
-    
-    .pixeltracer-tab-content {
-      flex: 1;
-      overflow-y: auto;
-      padding: 0;
-    }
-    
-    .pixeltracer-tab-pane {
-      display: none;
-      padding: 16px;
-      animation: pixeltracer-fade-in 0.3s ease;
-    }
-    
-    .pixeltracer-tab-pane.active {
-      display: block;
-    }
-    
-    @keyframes pixeltracer-fade-in {
-      from { opacity: 0; }
-      to { opacity: 1; }
-    }
-    
-    .pixeltracer-param-table {
-      width: 100%;
-      border-collapse: collapse;
-      font-size: 14px;
-    }
-    
-    .pixeltracer-param-table th, .pixeltracer-param-table td {
-      text-align: left;
-      padding: 8px 12px;
-      border-bottom: 1px solid #eee;
-    }
-    
-    .pixeltracer-param-table th {
-      background-color: #f5f5f5;
-      font-weight: 600;
-      color: #34495e;
-    }
-    
-    .pixeltracer-param-table td {
-      color: #333;
-    }
-    
-    .pixeltracer-param-name {
-      font-weight: 500;
-    }
-    
-    .pixeltracer-param-value {
-      font-family: monospace;
-    }
-    
-    .pixeltracer-param-table tr:hover td {
-      background-color: #f9f9f9;
-    }
-    
-    .pixeltracer-request-item {
-      background-color: white;
-      border-radius: 6px;
-      padding: 14px 16px;
-      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-      animation: pixeltracer-slide-in 0.3s ease;
-      cursor: pointer;
-      transition: all 0.2s ease;
-      border-left: 3px solid #3498db;
-      margin-bottom: 8px;
-    }
-    
-    .pixeltracer-request-item:hover {
-      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.15);
-      transform: translateY(-2px);
-      border-left-width: 5px;
-    }
-    
-    .pixeltracer-request-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    
-    .pixeltracer-request-title {
-      font-weight: 600;
-      color: #2c3e50;
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      font-size: 14px;
-    }
-    
-    .pixeltracer-event-badge {
-      display: inline-block;
-      font-size: 12px;
-      padding: 3px 10px;
-      border-radius: 12px;
-      background-color: #e0f7fa;
-      color: #0097a7;
-      position: relative;
-      font-weight: 500;
-      letter-spacing: 0.2px;
-      white-space: nowrap;
-      cursor: help;
-    }
-    
-    /* Event badge variations by type */
-    .pixeltracer-event-badge[data-type="pageview"],
-    .pixeltracer-event-badge[data-type="PageView"] {
-      background-color: #e3f2fd;
-      color: #1976d2;
-    }
-    
-    .pixeltracer-event-badge[data-type="event"],
-    .pixeltracer-event-badge[data-type="Event"] {
-      background-color: #e0f7fa;
-      color: #0097a7;
-    }
-    
-    .pixeltracer-event-badge[data-type="purchase"],
-    .pixeltracer-event-badge[data-type="Purchase"] {
-      background-color: #e8f5e9;
-      color: #388e3c;
-    }
-    
-    .pixeltracer-event-badge[data-type="conversion"] {
-      background-color: #f3e5f5;
-      color: #7b1fa2;
-    }
-    
-    .pixeltracer-event-badge[data-type="AddToCart"] {
-      background-color: #fff8e1;
-      color: #ff8f00;
-    }
-    
-    .pixeltracer-event-time {
-      font-size: 12px;
-      color: #95a5a6;
-      display: flex;
-      align-items: center;
-    }
-    
-    .pixeltracer-event-time::before {
-      content: "\f017";
-      font-family: "Font Awesome 6 Free";
-      margin-right: 5px;
-      opacity: 0.7;
-    }
-    
-    .pixeltracer-account-id {
-      font-size: 12px;
-      color: #95a5a6;
-      margin-left: 4px;
-      font-weight: 400;
-      cursor: help;
-    }
-    
-    /* Custom styling for event types by provider */
-    .pixeltracer-category-analytics { border-left-color: #3498db; }
-    .pixeltracer-category-ads { border-left-color: #e74c3c; }
-    .pixeltracer-category-remarketing { border-left-color: #f39c12; }
-    .pixeltracer-category-social { border-left-color: #9b59b6; }
-    
-    /* Styles for the details section */
-    .pixeltracer-details-group {
-      margin-bottom: 16px;
-      border: 1px solid #eee;
-      border-radius: 6px;
-      overflow: hidden;
-    }
-    
-    .pixeltracer-details-group-title {
-      background-color: #f5f5f5;
-      padding: 12px 15px;
-      font-weight: 600;
-      color: #2c3e50;
-      border-bottom: 1px solid #eee;
-      display: flex;
-      align-items: center;
-    }
-    
-    .pixeltracer-details-group-title i {
-      margin-right: 8px;
-      color: #3498db;
-    }
-    
-    .pixeltracer-details-item {
-      padding: 10px 15px;
-      display: flex;
-      border-bottom: 1px solid #eee;
-    }
-    
-    .pixeltracer-details-item:last-child {
-      border-bottom: none;
-    }
-    
-    .pixeltracer-details-key {
-      width: 40%;
-      font-weight: 500;
-      color: #34495e;
-    }
-    
-    .pixeltracer-details-value {
-      width: 60%;
-      word-break: break-all;
-    }
-    
-    /* Styles for empty state */
-    .pixeltracer-empty-state {
-      text-align: center;
-      color: #95a5a6;
-      padding: 30px 20px;
-      font-style: italic;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 120px;
-      flex-direction: column;
-    }
-    
-    .pixeltracer-empty-state:before {
-      content: '\f254';
-      font-family: 'Font Awesome 6 Free';
-      font-weight: 900;
-      font-size: 24px;
-      margin-bottom: 10px;
-      color: #bdc3c7;
-    }
-  `;
+  // Add font awesome if needed
+  if (!document.querySelector('link[href*="font-awesome"]')) {
+    const fontAwesome = document.createElement('link');
+    fontAwesome.rel = 'stylesheet';
+    fontAwesome.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+    document.head.appendChild(fontAwesome);
+  }
   
-  document.head.appendChild(style);
-  
-  // Create overlay for the detail window
-  const overlay = document.createElement('div');
-  overlay.className = 'pixeltracer-detail-overlay';
-  document.body.appendChild(overlay);
-  
+  // Create and add the overlay
+  detailOverlayEl = document.createElement('div');
+  detailOverlayEl.className = 'pixeltracer-detail-overlay';
+  document.body.appendChild(detailOverlayEl);
   document.body.appendChild(detailWindowEl);
   
-  // Add event listeners
-  document.getElementById('pixeltracer-detail-close').addEventListener('click', closeDetailWindow);
-  overlay.addEventListener('click', closeDetailWindow);
-  
-  // Add tab functionality
-  const tabButtons = document.querySelectorAll('.pixeltracer-tab-button');
+  // Add event listeners for tabs
+  const tabButtons = detailWindowEl.querySelectorAll('.pixeltracer-tab-button');
   tabButtons.forEach(button => {
     button.addEventListener('click', () => {
       const tabName = button.getAttribute('data-tab');
       setActiveTab(tabName);
     });
   });
+  
+  // Add close button event listener
+  const closeButton = detailWindowEl.querySelector('#pixeltracer-detail-close');
+  if (closeButton) {
+    closeButton.addEventListener('click', closeDetailWindow);
+  }
+  
+  // Click on overlay to close
+  detailOverlayEl.addEventListener('click', closeDetailWindow);
 }
 
 // Set the active tab in the detail window
 function setActiveTab(tabName) {
-  const tabButtons = document.querySelectorAll('.pixeltracer-tab-button');
-  const tabPanes = document.querySelectorAll('.pixeltracer-tab-pane');
+  if (!detailWindowEl) return;
+  
+  const tabButtons = detailWindowEl.querySelectorAll('.pixeltracer-tab-button');
+  const tabPanes = detailWindowEl.querySelectorAll('.pixeltracer-tab-pane');
   
   // Remove active class from all buttons and panes
   tabButtons.forEach(button => button.classList.remove('active'));
   tabPanes.forEach(pane => pane.classList.remove('active'));
   
   // Add active class to the selected button and pane
-  document.querySelector(`.pixeltracer-tab-button[data-tab="${tabName}"]`).classList.add('active');
-  document.getElementById(`pixeltracer-${tabName}-tab`).classList.add('active');
-}
-
-// Show the detail window
-function showDetailWindow(providerName, providerId, request) {
-  if (!detailWindowEl) return;
+  const selectedButton = detailWindowEl.querySelector(`.pixeltracer-tab-button[data-tab="${tabName}"]`);
+  const selectedPane = document.getElementById(`pixeltracer-${tabName}-tab`);
   
-  // Set title
-  document.getElementById('pixeltracer-detail-title').textContent = `${providerName} Request Details`;
-  
-  // Fill tab content
-  fillGeneralTab(providerId, request);
-  fillEventTab(providerId, request);
-  fillParamsTab(request);
-  fillHeadersTab(request);
-  fillPayloadTab(request);
-  
-  // Show the window and overlay
-  detailWindowEl.classList.add('visible');
-  document.querySelector('.pixeltracer-detail-overlay').classList.add('visible');
-  
-  // Set first tab as active
-  setActiveTab('general');
+  if (selectedButton) selectedButton.classList.add('active');
+  if (selectedPane) selectedPane.classList.add('active');
 }
 
 // Close the detail window
@@ -1644,7 +1464,10 @@ function closeDetailWindow() {
   if (!detailWindowEl) return;
   
   detailWindowEl.classList.remove('visible');
-  document.querySelector('.pixeltracer-detail-overlay').classList.remove('visible');
+  
+  if (detailOverlayEl) {
+    detailOverlayEl.classList.remove('visible');
+  }
 }
 
 /**
@@ -1689,6 +1512,11 @@ function createLiveView() {
       liveViewEl.classList.add('minimized');
     } else {
       liveViewEl.classList.remove('minimized');
+    }
+    
+    // Ensure we have the references to important elements
+    if (!requestsContainer) {
+      requestsContainer = document.getElementById('pixeltracer-requests-container');
     }
     
     return;
@@ -1745,347 +1573,91 @@ function createLiveView() {
     </div>
   `;
 
-  // Add styles
-  const style = document.createElement('style');
-  style.textContent = `
-    @import url('https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css');
-    
-    #pixeltracer-live-view {
-      position: fixed;
-      bottom: 20px;
-      right: 20px;
-      width: 450px;
-      max-height: 550px;
-      background-color: #fff;
-      border-radius: 8px;
-      box-shadow: 0 4px 15px rgba(0, 0, 0, 0.2);
-      z-index: 999999;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
-      display: flex;
-      flex-direction: column;
-      overflow: hidden;
-      transition: all 0.3s ease;
-      border: 1px solid #e0e0e0;
-      cursor: default;
-    }
-    
-    #pixeltracer-live-view.minimized {
-      height: 40px;
-      overflow: hidden;
-    }
-    
-    .pixeltracer-header {
-      background-color: #2c3e50;
-      color: white;
-      padding: 10px 15px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      cursor: move;
-      user-select: none;
-      position: relative;
-    }
-    
-    .pixeltracer-header:before {
-      content: '';
-      display: block;
-      position: absolute;
-      left: 15px;
-      top: 50%;
-      transform: translateY(-50%);
-      height: 6px;
-      width: 20px;
-      background: linear-gradient(
-        to bottom,
-        rgba(255, 255, 255, 0.5) 1px,
-        transparent 1px,
-        transparent 2px,
-        rgba(255, 255, 255, 0.5) 2px,
-        transparent 2px,
-        transparent 3px,
-        rgba(255, 255, 255, 0.5) 3px
-      );
-    }
-    
-    .pixeltracer-header h3 {
-      margin: 0;
-      font-size: 16px;
-      font-weight: 500;
-      display: flex;
-      align-items: center;
-      margin-left: 30px;
-    }
-    
-    .pixeltracer-header h3 i {
-      margin-right: 8px;
-      color: #3498db;
-    }
-    
-    .pixeltracer-controls {
-      display: flex;
-      gap: 5px;
-    }
-    
-    .pixeltracer-controls button {
-      background: none;
-      border: none;
-      color: white;
-      font-size: 16px;
-      cursor: pointer;
-      width: 24px;
-      height: 24px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      border-radius: 4px;
-      padding: 0;
-    }
-    
-    .pixeltracer-controls button:hover {
-      background-color: rgba(255, 255, 255, 0.2);
-    }
-    
-    .pixeltracer-body {
-      flex: 1;
-      overflow-y: auto;
-      padding: 12px;
-      max-height: 510px;
-      background-color: #f5f5f5;
-      display: flex;
-      flex-direction: column;
-    }
-    
-    .pixeltracer-stats {
-      display: flex;
-      justify-content: space-between;
-      margin-bottom: 16px;
-      background-color: #f9f9f9;
-      border-radius: 8px;
-      padding: 16px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    .pixeltracer-stat-item {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      flex: 1;
-      position: relative;
-    }
-    
-    .pixeltracer-stat-item:first-child::after {
-      content: '';
-      position: absolute;
-      right: 0;
-      top: 10%;
-      height: 80%;
-      width: 1px;
-      background-color: #e0e0e0;
-    }
-    
-    .pixeltracer-stat-value {
-      font-size: 28px;
-      font-weight: 700;
-      color: #16a085;
-    }
-    
-    .pixeltracer-stat-label {
-      font-size: 12px;
-      color: #7f8c8d;
-      margin-top: 4px;
-      text-transform: uppercase;
-      letter-spacing: 0.5px;
-    }
-    
-    .pixeltracer-filter-bar {
-      display: flex;
-      gap: 10px;
-      margin-bottom: 16px;
-      background-color: #f9f9f9;
-      border-radius: 8px;
-      padding: 12px;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    
-    .pixeltracer-filter-group {
-      display: flex;
-      align-items: center;
-      gap: 6px;
-    }
-    
-    .pixeltracer-filter-group label {
-      font-size: 12px;
-      color: #7f8c8d;
-      font-weight: 500;
-    }
-    
-    .pixeltracer-filter-group select {
-      padding: 4px 8px;
-      border-radius: 4px;
-      border: 1px solid #e0e0e0;
-      background-color: white;
-      font-size: 12px;
-      color: #34495e;
-      cursor: pointer;
-    }
-    
-    .pixeltracer-section-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-    }
-    
-    .pixeltracer-section-header h2 {
-      font-size: 16px;
-      margin: 0;
-      color: #34495e;
-      font-weight: 600;
-      display: flex;
-      align-items: center;
-    }
-    
-    .pixeltracer-section-header h2 i {
-      margin-right: 6px;
-      color: #3498db;
-      font-size: 18px;
-    }
-    
-    #pixeltracer-requests-container {
-      display: flex;
-      flex-direction: column;
-      gap: 10px;
-      overflow-y: auto;
-      min-height: 0;
-      max-height: calc(100% - 70px);
-    }
-    
-    .pixeltracer-empty-state {
-      text-align: center;
-      color: #95a5a6;
-      padding: 20px;
-      font-style: italic;
-      display: flex;
-      justify-content: center;
-      align-items: center;
-      height: 100px;
-    }
-    
-    .pixeltracer-provider-group {
-      margin-bottom: 15px;
-    }
-    
-    .pixeltracer-provider-header {
-      background-color: #f1f1f1;
-      padding: 8px 12px;
-      border-radius: 6px;
-      margin-bottom: 8px;
-      font-weight: 600;
-      color: #34495e;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    
-    .pixeltracer-provider-count {
-      background-color: #3498db;
-      color: white;
-      font-size: 11px;
-      border-radius: 12px;
-      padding: 2px 8px;
-      font-weight: normal;
-    }
-    
-    @keyframes pixeltracer-slide-in {
-      from {
-        opacity: 0;
-        transform: translateY(10px);
-      }
-      to {
-        opacity: 1;
-        transform: translateY(0);
-      }
-    }
-  `;
+  // Apply dark mode if enabled
+  if (isDarkMode && liveViewEl) {
+    liveViewEl.classList.add('dark-mode');
+  }
   
-  document.head.appendChild(style);
+  // Add font awesome if needed
+  if (!document.querySelector('link[href*="font-awesome"]')) {
+    const fontAwesome = document.createElement('link');
+    fontAwesome.rel = 'stylesheet';
+    fontAwesome.href = 'https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css';
+    document.head.appendChild(fontAwesome);
+  }
+  
+  // Set initial position from saved settings or defaults
+  getInitialPosition().then(position => {
+    if (position) {
+      // Apply correct positioning with top/left instead of transform
+      liveViewEl.style.top = position.top;
+      liveViewEl.style.left = position.left;
+      liveViewEl.style.bottom = position.bottom;
+      liveViewEl.style.right = position.right;
+    }
+  });
+  
   document.body.appendChild(liveViewEl);
   
-  // Set initial position based on stored position or default
-  getInitialPosition().then(position => {
-    liveViewEl.style.left = position.left;
-    liveViewEl.style.top = position.top;
-    liveViewEl.style.right = position.right;
-    liveViewEl.style.bottom = position.bottom;
-    
-    // Make the window draggable
-    const headerEl = liveViewEl.querySelector('.pixeltracer-header');
-    makeDraggable(liveViewEl, headerEl);
-    
-    // Add event listeners
-    const minimizeButton = liveViewEl.querySelector('#pixeltracer-minimize');
-    const closeButton = liveViewEl.querySelector('#pixeltracer-close');
-    
-    minimizeButton.addEventListener('click', toggleMinimize);
-    closeButton.addEventListener('click', removeLiveView);
-    
-    // Get reference to the requests container
-    requestsContainer = document.getElementById('pixeltracer-requests-container');
-    
-    // Apply filter and view mode from saved preferences
-    const filterTypeSelect = document.getElementById('pixeltracer-filter-type');
-    const viewModeSelect = document.getElementById('pixeltracer-view-mode');
-    
-    console.log('Applying filter preferences:', filterPreferences);
-    
-    // Set the select elements to match the stored preferences
-    if (filterTypeSelect) {
-      // Make sure we set a valid value
-      if (filterPreferences.filterType && 
-          Array.from(filterTypeSelect.options).some(opt => opt.value === filterPreferences.filterType)) {
-        filterTypeSelect.value = filterPreferences.filterType;
-      } else {
-        // Default to "all" if the stored value is invalid
-        filterTypeSelect.value = 'all';
-        filterPreferences.filterType = 'all';
-      }
-    }
-    
-    if (viewModeSelect) {
-      // Make sure we set a valid value
-      if (filterPreferences.viewMode && 
-          Array.from(viewModeSelect.options).some(opt => opt.value === filterPreferences.viewMode)) {
-        viewModeSelect.value = filterPreferences.viewMode;
-      } else {
-        // Default to "chronological" if the stored value is invalid
-        viewModeSelect.value = 'chronological';
-        filterPreferences.viewMode = 'chronological';
-      }
-    }
-    
-    // Add event listeners for filter changes
-    if (filterTypeSelect) {
-      filterTypeSelect.addEventListener('change', (e) => {
-        // Only update the filter type, keep the view mode unchanged
-        filterPreferences.filterType = e.target.value;
-        saveFilterPreferences();
-        refreshRequestList();
-      });
-    }
-    
-    if (viewModeSelect) {
-      viewModeSelect.addEventListener('change', (e) => {
-        // Only update the view mode, keep the filter type unchanged
-        filterPreferences.viewMode = e.target.value;
-        saveFilterPreferences();
-        refreshRequestList();
-      });
-    }
-    
-    // Create detail window
-    createDetailWindow();
-    
-    // Check for inline tracking scripts after the page is loaded
-    setTimeout(detectInlineTrackingScripts, 1000);
+  // Make it draggable
+  const handle = liveViewEl.querySelector('.pixeltracer-header');
+  makeDraggable(liveViewEl, handle);
+  
+  // Add event listeners for controls
+  const minimizeButton = liveViewEl.querySelector('#pixeltracer-minimize');
+  minimizeButton.addEventListener('click', toggleMinimize);
+  
+  const closeButton = liveViewEl.querySelector('#pixeltracer-close');
+  closeButton.addEventListener('click', removeLiveView);
+  
+  // Get reference to the requests container for later use
+  requestsContainer = document.getElementById('pixeltracer-requests-container');
+  console.log('Request container initialized:', requestsContainer);
+  
+  // Add event listeners for filters
+  const filterTypeSelect = liveViewEl.querySelector('#pixeltracer-filter-type');
+  const viewModeSelect = liveViewEl.querySelector('#pixeltracer-view-mode');
+  
+  // Set initial values from saved preferences
+  filterTypeSelect.value = filterPreferences.filterType;
+  viewModeSelect.value = filterPreferences.viewMode;
+  
+  filterTypeSelect.addEventListener('change', (e) => {
+    filterPreferences.filterType = e.target.value;
+    saveFilterPreferences();
+    refreshRequestList();
   });
+  
+  viewModeSelect.addEventListener('change', (e) => {
+    filterPreferences.viewMode = e.target.value;
+    saveFilterPreferences();
+    refreshRequestList();
+  });
+  
+  // Initial refresh of requests
+  refreshRequestList();
+  
+  // Update the live view enabled state
+  saveLiveViewState(true);
+  
+  return liveViewEl;
+}
+
+// Add a function to update the Live View theme
+function updateLiveViewTheme() {
+  if (liveViewEl) {
+    if (isDarkMode) {
+      liveViewEl.classList.add('dark-mode');
+    } else {
+      liveViewEl.classList.remove('dark-mode');
+    }
+  }
+  
+  if (detailWindowEl) {
+    if (isDarkMode) {
+      detailWindowEl.classList.add('dark-mode');
+    } else {
+      detailWindowEl.classList.remove('dark-mode');
+    }
+  }
 } 

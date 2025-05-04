@@ -15,6 +15,7 @@ const SOURCE_FILES = [
   'popup.html',
   'popup.js',
   'popup.css',
+  'liveview.css',
   'trackingProviders.js',
   'images/*'
 ];
