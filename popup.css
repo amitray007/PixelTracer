@@ -1,0 +1,225 @@
+/* General Styles */
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+  font-size: 14px;
+  color: #333;
+  background-color: #f5f5f5;
+}
+
+.container {
+  width: 380px;
+  max-height: 500px;
+  padding: 16px;
+  background-color: #fff;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Header */
+header {
+  padding-bottom: 12px;
+  border-bottom: 1px solid #eee;
+  margin-bottom: 16px;
+}
+
+h1 {
+  font-size: 20px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  color: #2c3e50;
+}
+
+.subtitle {
+  color: #7f8c8d;
+  font-size: 12px;
+}
+
+/* Main Content */
+main {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 8px;
+}
+
+/* Stats */
+.stats {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  background-color: #f9f9f9;
+  border-radius: 6px;
+  padding: 12px;
+}
+
+.stat-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  flex: 1;
+}
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 700;
+  color: #16a085;
+}
+
+.stat-label {
+  font-size: 12px;
+  color: #95a5a6;
+  margin-top: 4px;
+}
+
+/* Provider and Request Lists */
+h2 {
+  font-size: 16px;
+  margin-bottom: 8px;
+  color: #34495e;
+  font-weight: 600;
+}
+
+.provider-list, .request-list {
+  margin-bottom: 16px;
+}
+
+.provider-item, .request-item {
+  padding: 10px;
+  border-radius: 6px;
+  background-color: #f9f9f9;
+  margin-bottom: 8px;
+  border-left: 3px solid #3498db;
+}
+
+.provider-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.provider-name {
+  font-weight: 500;
+}
+
+.provider-category {
+  font-size: 12px;
+  padding: 2px 6px;
+  border-radius: 12px;
+  background-color: #ecf0f1;
+  color: #7f8c8d;
+}
+
+.request-url {
+  font-size: 12px;
+  color: #7f8c8d;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  margin-top: 4px;
+}
+
+.request-time {
+  font-size: 11px;
+  color: #95a5a6;
+  margin-top: 4px;
+}
+
+.provider-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.provider-badge {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 10px;
+  background-color: #e0f7fa;
+  color: #0097a7;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 20px;
+  color: #95a5a6;
+  font-style: italic;
+}
+
+/* Footer */
+footer {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid #eee;
+}
+
+button {
+  padding: 8px 16px;
+  border-radius: 4px;
+  border: none;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+#clear-data {
+  background-color: #f1f1f1;
+  color: #333;
+}
+
+#export-data {
+  background-color: #2c3e50;
+  color: white;
+}
+
+button:hover {
+  opacity: 0.9;
+}
+
+/* Category Colors */
+.category-analytics {
+  border-left-color: #3498db;
+}
+
+.category-ads {
+  border-left-color: #e74c3c;
+}
+
+.category-remarketing {
+  border-left-color: #f39c12;
+}
+
+.category-social {
+  border-left-color: #9b59b6;
+}
+
+/* Scrollbar styles */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a8a8a8;
+} 

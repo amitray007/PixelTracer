@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PixelTracer</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header>
+      <h1>PixelTracer</h1>
+      <p class="subtitle">Tracking request detector</p>
+    </header>
+    
+    <main>
+      <div class="stats">
+        <div class="stat-item">
+          <span class="stat-value" id="total-requests">0</span>
+          <span class="stat-label">Total Requests</span>
+        </div>
+        <div class="stat-item">
+          <span class="stat-value" id="unique-providers">0</span>
+          <span class="stat-label">Unique Providers</span>
+        </div>
+      </div>
+      
+      <div class="provider-list">
+        <h2>Detected Providers</h2>
+        <div id="providers-container"></div>
+      </div>
+      
+      <div class="request-list">
+        <h2>Recent Requests</h2>
+        <div id="requests-container"></div>
+      </div>
+    </main>
+    
+    <footer>
+      <button id="clear-data">Clear Data</button>
+      <button id="export-data">Export Data</button>
+    </footer>
+  </div>
+  
+  <script src="popup.js" type="module"></script>
+</body>
+</html> 
