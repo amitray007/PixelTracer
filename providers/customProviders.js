@@ -234,4 +234,286 @@ export const facebookPixelProvider = {
       return results;
     }
   }
+};
+
+/**
+ * Google DoubleClick Provider
+ * Detects and analyzes Google DoubleClick tracking events
+ */
+export const googleDoubleClickProvider = {
+  name: 'Google DoubleClick',
+  description: 'Google\'s advertising and marketing platform',
+  patterns: [
+    /(?:fls|ad)\.doubleclick\.net\/activityi(?!.*dc_pre);/
+  ],
+  category: 'marketing',
+  schema: {
+    eventTypes: {
+      'transactions': 'Transactions',
+      'items_sold': 'Items Sold',
+      'unique': 'Unique',
+      'standard': 'Standard',
+      'per_session': 'Per Session'
+    },
+    groups: {
+      'general': {
+        title: 'General',
+        fields: [
+          { key: 'src', label: 'Account ID' },
+          { key: 'type', label: 'Activity Group' },
+          { key: 'cat', label: 'Activity Tag' },
+          { key: 'cost', label: 'Value' },
+          { key: 'qty', label: 'Quantity' },
+          { key: 'ord', label: 'Transaction ID' },
+          { key: 'countingMethod', label: 'Counting Method' },
+          { key: '~oref', label: 'Page URL' }
+        ]
+      },
+      'custom': {
+        title: 'Custom Fields',
+        fields: []
+      },
+      'other': {
+        title: 'Other Settings',
+        fields: [
+          { key: 'num', label: 'Request Cache Buster' },
+          { key: 'dc_lat', label: 'Limit Ad Tracking' },
+          { key: 'tag_for_child_directed_treatment', label: 'COPPA Request' },
+          { key: 'tfua', label: 'User Underage' },
+          { key: 'npa', label: 'Opt-out of Remarketing' }
+        ]
+      }
+    },
+    // Custom parsing functions for Google DoubleClick
+    parseAccount: (params) => {
+      let account = "DC-" + params.get('src');
+      // Add the type & category if available
+      if (params.get('type') && params.get('cat')) {
+        account += "/" + params.get('type') + "/" + params.get('cat');
+      }
+      return account;
+    },
+    parseEventType: (params) => {
+      const ord = params.get('ord');
+      if (params.get('qty')) {
+        return 'transactions / items_sold';
+      } else if (ord) {
+        return (ord === "1") ? 'unique' : 'standard';
+      }
+      return 'per_session';
+    }
+  }
+};
+
+/**
+ * Google Tag Manager Provider
+ * Detects Google Tag Manager implementations
+ */
+export const googleTagManagerProvider = {
+  name: 'Google Tag Manager',
+  description: 'Google\'s tag management system',
+  patterns: [
+    /googletagmanager\.com\/gtm\.js/
+  ],
+  category: 'tagmanager',
+  schema: {
+    eventTypes: {
+      'Library Load': 'Library Load'
+    },
+    groups: {
+      'general': {
+        title: 'General',
+        fields: [
+          { key: 'id', label: 'Account ID' },
+          { key: 'l', label: 'Data Layer Variable' }
+        ]
+      }
+    },
+    // Custom parsing functions for GTM
+    parseAccount: (params) => {
+      return params.get('id') || '';
+    },
+    parseEventType: () => {
+      return 'Library Load';
+    }
+  }
+};
+
+/**
+ * Google Universal Analytics Provider
+ * Detects and analyzes Google Universal Analytics tracking
+ */
+export const googleAnalyticsProvider = {
+  name: 'Google Universal Analytics',
+  description: 'Google\'s web analytics service (Universal Analytics)',
+  patterns: [
+    /(?:\.google-analytics|analytics\.google)\.com\/([^g]\/)?collect(?:[/#?]+(?!.*consentMode=)|$)/
+  ],
+  category: 'analytics',
+  schema: {
+    eventTypes: {
+      'pageview': 'Page View',
+      'screenview': 'Screen View',
+      'event': 'Event',
+      'transaction': 'Transaction',
+      'item': 'Item',
+      'social': 'Social',
+      'exception': 'Exception',
+      'timing': 'Timing'
+    },
+    groups: {
+      'general': {
+        title: 'General',
+        fields: [
+          { key: 'v', label: 'Protocol Version' },
+          { key: 'tid', label: 'Tracking ID' },
+          { key: 'aip', label: 'Anonymize IP' },
+          { key: 'cid', label: 'Client ID' },
+          { key: 'dl', label: 'Document Location URL' },
+          { key: 'dh', label: 'Document Host Name' },
+          { key: 'dp', label: 'Document Path' },
+          { key: 'dt', label: 'Document Title' },
+          { key: 'dr', label: 'Document Referrer' },
+          { key: 'ul', label: 'User Language' },
+          { key: 'sr', label: 'Screen Resolution' },
+          { key: 'vp', label: 'Viewport Size' }
+        ]
+      },
+      'events': {
+        title: 'Events',
+        fields: [
+          { key: 'ec', label: 'Event Category' },
+          { key: 'ea', label: 'Event Action' },
+          { key: 'el', label: 'Event Label' },
+          { key: 'ev', label: 'Event Value' },
+          { key: 'ni', label: 'Non-Interaction Hit' }
+        ]
+      },
+      'ecommerce': {
+        title: 'Ecommerce',
+        fields: [
+          { key: 'ti', label: 'Transaction ID' },
+          { key: 'ta', label: 'Transaction Affiliation' },
+          { key: 'tr', label: 'Transaction Revenue' },
+          { key: 'ts', label: 'Transaction Shipping' },
+          { key: 'tt', label: 'Transaction Tax' },
+          { key: 'cu', label: 'Currency Code' },
+          { key: 'in', label: 'Item Name' },
+          { key: 'ip', label: 'Item Price' },
+          { key: 'iq', label: 'Item Quantity' },
+          { key: 'ic', label: 'Item Code' },
+          { key: 'iv', label: 'Item Category' }
+        ]
+      },
+      'campaign': {
+        title: 'Campaign',
+        fields: [
+          { key: 'cn', label: 'Campaign Name' },
+          { key: 'cs', label: 'Campaign Source' },
+          { key: 'cm', label: 'Campaign Medium' },
+          { key: 'ck', label: 'Campaign Keyword' },
+          { key: 'cc', label: 'Campaign Content' },
+          { key: 'ci', label: 'Campaign ID' },
+          { key: 'gclid', label: 'Google AdWords ID' },
+          { key: 'dclid', label: 'Google Display Ads ID' }
+        ]
+      }
+    },
+    // Custom parsing functions for UA
+    parseAccount: (params) => {
+      return params.get('tid') || '';
+    },
+    parseEventType: (params) => {
+      return params.get('t') || params.get('en') || 'pageview';
+    }
+  }
+};
+
+/**
+ * Google Analytics 4 Provider
+ * Detects and analyzes Google Analytics 4 tracking
+ */
+export const googleAnalytics4Provider = {
+  name: 'Google Analytics 4',
+  description: 'Google\'s next generation analytics service (GA4)',
+  patterns: [
+    /https?:\/\/([^/]+)(?<!(clarity\.ms|transcend\.io)|(\.doubleclick\.net))\/g\/collect(?:[/#?]|$)/
+  ],
+  category: 'analytics',
+  schema: {
+    eventTypes: {
+      'page_view': 'Page View',
+      'screen_view': 'Screen View',
+      'event': 'Event',
+      'purchase': 'Purchase',
+      'refund': 'Refund',
+      'add_payment_info': 'Add Payment Info',
+      'add_shipping_info': 'Add Shipping Info',
+      'add_to_cart': 'Add to Cart',
+      'remove_from_cart': 'Remove from Cart',
+      'begin_checkout': 'Begin Checkout',
+      'view_item': 'View Item',
+      'view_item_list': 'View Item List',
+      'view_promotion': 'View Promotion',
+      'select_promotion': 'Select Promotion',
+      'select_item': 'Select Item'
+    },
+    groups: {
+      'general': {
+        title: 'General',
+        fields: [
+          { key: 'v', label: 'Protocol Version' },
+          { key: 'tid', label: 'Tracking ID' },
+          { key: 'cid', label: 'Client ID' },
+          { key: 'dl', label: 'Document Location URL' },
+          { key: 'dh', label: 'Document Host Name' },
+          { key: 'dp', label: 'Document Path' },
+          { key: 'dt', label: 'Document Title' },
+          { key: 'dr', label: 'Document Referrer' },
+          { key: 'ul', label: 'User Language' },
+          { key: 'sr', label: 'Screen Resolution' },
+          { key: 'vp', label: 'Viewport Size' }
+        ]
+      },
+      'events': {
+        title: 'Events',
+        fields: [
+          { key: 'ep.event_param_key', label: 'Event Parameter' },
+          { key: 'ep.value', label: 'Event Value' },
+          { key: 'ni', label: 'Non-Interaction Hit' }
+        ]
+      },
+      'ecommerce': {
+        title: 'Ecommerce',
+        fields: [
+          { key: 'ep.transaction_id', label: 'Transaction ID' },
+          { key: 'ep.value', label: 'Transaction Value' },
+          { key: 'ep.currency', label: 'Currency Code' },
+          { key: 'ep.items', label: 'Items' }
+        ]
+      },
+      'campaign': {
+        title: 'Campaign',
+        fields: [
+          { key: 'cn', label: 'Campaign Name' },
+          { key: 'cs', label: 'Campaign Source' },
+          { key: 'cm', label: 'Campaign Medium' },
+          { key: 'ck', label: 'Campaign Keyword' },
+          { key: 'cc', label: 'Campaign Content' },
+          { key: 'ci', label: 'Campaign ID' },
+          { key: 'gclid', label: 'Google AdWords ID' }
+        ]
+      }
+    },
+    // Custom parsing functions for GA4
+    parseAccount: (params) => {
+      return params.get('tid') || params.get('measurement_id') || '';
+    },
+    parseEventType: (params, payload) => {
+      if (payload && payload.events && payload.events[0] && payload.events[0].name) {
+        return payload.events[0].name;
+      }
+      return params.get('en') || 'page_view';
+    }
+  }
 }; 

@@ -9,11 +9,15 @@
  */
 
 // Import custom provider implementations
-import { tikTokProvider, googleAdsProvider, facebookPixelProvider } from './providers/customProviders.js';
+import { tikTokProvider, googleAdsProvider, facebookPixelProvider, googleDoubleClickProvider, googleTagManagerProvider, googleAnalyticsProvider, googleAnalytics4Provider } from './providers/customProviders.js';
 
 export const trackingProviders = {
   // Add our custom providers
   'tiktok': tikTokProvider,
   'google-ads': googleAdsProvider,
   'facebook-pixel': facebookPixelProvider,
+  'google-doubleclick': googleDoubleClickProvider,
+  'google-tag-manager': googleTagManagerProvider,
+  'google-analytics': googleAnalyticsProvider,
+  'google-analytics-4': googleAnalytics4Provider
 }; 
