@@ -3,6 +3,91 @@
  * This script runs in the context of web pages
  */
 
+// Connection state monitor
+let connectionAlive = true;
+let connectionCheckInterval = null;
+
+// Check extension connection on load
+checkExtensionConnection();
+
+// Set up periodic connection checks
+startConnectionChecks();
+
+/**
+ * Check if the connection to the extension is still alive
+ * This proactively detects context invalidation
+ */
+function checkExtensionConnection() {
+  try {
+    // Try a simple extension API call
+    chrome.runtime.sendMessage({ action: 'ping' }, response => {
+      // If we get here without an error, connection is good
+      connectionAlive = true;
+      
+      // No need to handle response - we only care if it doesn't throw
+      return true;
+    });
+  } catch (e) {
+    // If we get an error, connection is dead (context invalidated)
+    connectionAlive = false;
+    handleConnectionLost();
+  }
+}
+
+/**
+ * Start periodic connection checks
+ */
+function startConnectionChecks() {
+  // Clear any existing interval
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+  }
+  
+  // Check connection every 10 seconds
+  connectionCheckInterval = setInterval(() => {
+    checkExtensionConnection();
+  }, 10000);
+}
+
+/**
+ * Handle lost connection to extension
+ */
+function handleConnectionLost() {
+  console.warn("Extension connection lost - context may be invalidated");
+  
+  // Stop the connection checks - they'll just keep failing
+  if (connectionCheckInterval) {
+    clearInterval(connectionCheckInterval);
+    connectionCheckInterval = null;
+  }
+  
+  // Clear tracking data state to avoid stale data
+  currentTabRequests = [];
+  
+  // Show the error in the Live View if it's active
+  if (liveViewEnabled && liveViewEl) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="data-loss-message">
+          <i class="fas fa-exclamation-triangle"></i>
+          <div>Extension has been updated or reloaded</div>
+          <button id="pixeltracer-refresh-page-btn" class="pixeltracer-btn">Refresh Page</button>
+        </div>
+      `;
+      emptyState.style.display = 'flex';
+      
+      // Add event listener to the refresh button
+      const refreshButton = document.getElementById('pixeltracer-refresh-page-btn');
+      if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    }
+  }
+}
+
 // State management
 let liveViewEnabled = false;
 let liveViewEl = null;
@@ -18,6 +103,7 @@ const MAX_DISPLAYED_REQUESTS = 100; // Increased to keep more requests in live v
 let trackingProvidersData = {}; // Will store provider data from background script
 let isFirstDataLoad = true; // Flag to track initial data load
 let isDarkMode = false; // Track theme mode
+let previousRequestCount = 0; // Track previous request count to detect data loss
 
 // Default filter settings
 let filterPreferences = {
@@ -35,6 +121,12 @@ init();
  * Initialize the content script
  */
 function init() {
+  // Only continue if connection is alive
+  if (!connectionAlive) {
+    console.warn("Not initializing - extension connection lost");
+    return;
+  }
+  
   // Get current tab ID
   getCurrentTabInfo();
   
@@ -53,29 +145,62 @@ function init() {
     collapsedProviders = {};
   }
   
-  // Get tracking providers data
-  chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId: 'all' }, (response) => {
-    if (response && response.allProviders) {
-      trackingProvidersData = response.allProviders;
-    }
-  });
+  // Only get tracking providers data if connection is alive
+  if (connectionAlive) {
+    // Get tracking providers data
+    chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId: 'all' }, (response) => {
+      if (chrome.runtime.lastError) {
+        // Connection might be lost during this call
+        connectionAlive = false;
+        handleConnectionLost();
+        return;
+      }
+      
+      if (response && response.allProviders) {
+        trackingProvidersData = response.allProviders;
+      }
+    });
+  }
   
   // Reset tracking data on initialization to avoid stale data
   currentTabRequests = [];
   
   // Load theme preference first
   chrome.storage.local.get(['pixelTracerTheme'], (result) => {
+    if (chrome.runtime.lastError) {
+      // Connection might be lost during this call
+      connectionAlive = false;
+      handleConnectionLost();
+      return;
+    }
+    
     isDarkMode = result.pixelTracerTheme === 'dark';
     
     // Then load filter preferences and initialize the UI
     loadFilterPreferences().then(() => {
       // Now initialize the Live View (if enabled)
-      chrome.storage.local.get(['pixelTracerSettings', 'liveViewState'], (result) => {
-        const settings = result.pixelTracerSettings || {};
+      chrome.storage.local.get(['liveViewPages', 'liveViewState'], (result) => {
+        if (chrome.runtime.lastError) {
+          // Connection might be lost during this call
+          connectionAlive = false;
+          handleConnectionLost();
+          return;
+        }
+        
+        const liveViewPages = result.liveViewPages || {};
         const liveViewState = result.liveViewState || {};
         
-        // If Live View is globally enabled and not explicitly closed for this domain, show it
-        if (settings.liveViewEnabled && liveViewState[hostname] !== 'closed') {
+        // Default to disabled for new sites
+        let pageSpecificLiveViewEnabled = false;
+        
+        // Only enable if we have an explicit setting for this hostname that is true
+        if (liveViewPages.hasOwnProperty(hostname)) {
+          pageSpecificLiveViewEnabled = !!liveViewPages[hostname]; // Cast to boolean
+        }
+        // No longer using global fallback - default is always off for new sites
+        
+        // If Live View is enabled for this domain and not explicitly closed, show it
+        if (pageSpecificLiveViewEnabled && liveViewState[hostname] !== 'closed') {
           liveViewEnabled = true;
           isLiveViewMinimized = liveViewState[hostname] === 'minimized';
           createLiveView();
@@ -86,7 +211,7 @@ function init() {
             
             // Add a periodic refresh for Live View to ensure we don't miss any updates
             setInterval(() => {
-              if (liveViewEnabled && document.visibilityState === 'visible') {
+              if (liveViewEnabled && document.visibilityState === 'visible' && connectionAlive) {
                 loadTrackingData();
               }
             }, 5000); // Refresh every 5 seconds while visible
@@ -99,7 +224,7 @@ function init() {
                 
                 // Set up the periodic refresh after we get the tab ID
                 setInterval(() => {
-                  if (liveViewEnabled && document.visibilityState === 'visible') {
+                  if (liveViewEnabled && document.visibilityState === 'visible' && connectionAlive) {
                     loadTrackingData();
                   }
                 }, 5000);
@@ -133,24 +258,30 @@ function init() {
       }
       
       // Notify background script about navigation to ensure data is cleared there too
-      if (currentTabId) {
+      if (currentTabId && connectionAlive) {
         chrome.runtime.sendMessage({
           action: 'dataCleared',
           tabId: currentTabId
+        }).catch(error => {
+          // If this fails, the connection is likely lost
+          connectionAlive = false;
+          handleConnectionLost();
         });
       }
     }
     
     // Refresh data after a slight delay
-    if (liveViewEnabled) {
+    if (liveViewEnabled && connectionAlive) {
       setTimeout(() => loadTrackingData(), 500);
     }
   });
   
   // Also listen for visibility changes to refresh data when tab becomes visible
   document.addEventListener('visibilitychange', () => {
-    if (document.visibilityState === 'visible' && liveViewEnabled) {
+    if (document.visibilityState === 'visible' && liveViewEnabled && connectionAlive) {
       loadTrackingData();
+      // Also check extension connection when page becomes visible
+      checkExtensionConnection();
     }
   });
   
@@ -162,9 +293,24 @@ function init() {
  * Get the current tab information
  */
 function getCurrentTabInfo() {
+  // Skip if connection is lost
+  if (!connectionAlive) {
+    console.warn("Skipping getCurrentTabInfo - extension connection lost");
+    return;
+  }
+
   try {
     chrome.runtime.sendMessage({ action: 'getCurrentTabInfo' }, (response) => {
+      // Check for runtime errors
       if (chrome.runtime.lastError) {
+        console.warn("Error getting tab info:", chrome.runtime.lastError.message);
+        
+        // Check specifically for context invalidation
+        if (chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+          // Update connection status
+          connectionAlive = false;
+          handleConnectionLost();
+        }
         return;
       }
       
@@ -174,7 +320,13 @@ function getCurrentTabInfo() {
       }
     });
   } catch (e) {
-    // Ignore errors
+    console.error("Error in getCurrentTabInfo:", e);
+    
+    // Check if the error is related to connection loss
+    if (e.message && e.message.includes("Extension context invalidated")) {
+      connectionAlive = false;
+      handleConnectionLost();
+    }
   }
 }
 
@@ -182,6 +334,13 @@ function getCurrentTabInfo() {
  * Load tracking data from the background script
  */
 function loadTrackingData() {
+  // Skip if connection is lost
+  if (!connectionAlive) {
+    console.warn("Skipping loadTrackingData - extension connection lost");
+    handleConnectionLost();
+    return;
+  }
+
   if (!currentTabId) {
     getCurrentTabInfo();
     // If we still don't have a tab ID, retry after a short delay
@@ -192,6 +351,9 @@ function loadTrackingData() {
   }
   
   const hostname = new URL(currentUrl || window.location.href).hostname;
+  
+  // Store the previous count before clearing the array
+  previousRequestCount = currentTabRequests.length;
   
   // Reset the requests array to prevent accumulation (but preserve collapsed state)
   currentTabRequests = [];
@@ -211,48 +373,202 @@ function loadTrackingData() {
   }
   
   // Request data from the background script which maintains the central store
-  chrome.runtime.sendMessage({
-    action: 'getTrackingData',
-    tabId: currentTabId,
-    hostname: hostname
-  }, (response) => {
-    // Check for Chrome runtime errors
-    if (chrome.runtime.lastError) {
-      showLoadingError();
-      // Retry once after a short delay
-      setTimeout(() => retryLoadTrackingData(hostname), 500);
-      return;
+  try {
+    chrome.runtime.sendMessage({
+      action: 'getTrackingData',
+      tabId: currentTabId,
+      hostname: hostname
+    }, (response) => {
+      // If this callback executes, the connection is still alive
+      
+      // Check for Chrome runtime errors, including context invalidation
+      if (chrome.runtime.lastError) {
+        console.warn("Runtime error in loadTrackingData:", chrome.runtime.lastError.message);
+        
+        // Check specifically for context invalidation
+        if (chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+          // Update connection status
+          connectionAlive = false;
+          handleConnectionLost();
+          return;
+        }
+        
+        showLoadingError();
+        return;
+      }
+      
+      if (response && response.success && response.requests) {
+        // Update our local state
+        currentTabRequests = response.requests || [];
+        
+        // Make sure we have the requests container reference
+        if (liveViewEnabled && liveViewEl && !requestsContainer) {
+          requestsContainer = document.getElementById('pixeltracer-requests-container');
+        }
+        
+        // Only update UI if Live View is visible
+        if (liveViewEnabled && liveViewEl) {
+          // Update filter options based on new data
+          refreshFilters();
+          
+          updateStats();
+          refreshRequestList();
+          
+          // If we have requests but the UI shows nothing, try forcing a re-render
+          if (currentTabRequests.length > 0 && (!requestsList || requestsList.length === 0)) {
+            setTimeout(() => {
+              refreshRequestList();
+            }, 200);
+          }
+          
+          // Check for potential data loss
+          if (previousRequestCount > 0 && currentTabRequests.length === 0) {
+            showDataLossMessage();
+          }
+        }
+      } else {
+        // Try once more after a short delay (may be a timing issue)
+        setTimeout(() => retryLoadTrackingData(hostname), 500);
+      }
+    });
+  } catch (error) {
+    // Handle other errors gracefully
+    console.error("Error in loadTrackingData:", error);
+    showLoadingError();
+  }
+}
+
+/**
+ * Show a message that the extension context has been invalidated
+ * This happens when the extension is reloaded or updated
+ */
+function showExtensionContextInvalidatedError() {
+  if (liveViewEnabled && liveViewEl) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="data-loss-message">
+          <i class="fas fa-exclamation-triangle"></i>
+          <div>Extension has been updated or reloaded</div>
+          <button id="pixeltracer-refresh-page-btn" class="pixeltracer-btn">Refresh Page</button>
+        </div>
+      `;
+      emptyState.style.display = 'flex';
+      
+      // Add event listener to the refresh button
+      const refreshButton = document.getElementById('pixeltracer-refresh-page-btn');
+      if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Show a message that data may have been lost with a refresh button
+ */
+function showDataLossMessage() {
+  if (liveViewEnabled && liveViewEl) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="data-loss-message">
+          <i class="fas fa-exclamation-triangle"></i>
+          <div>Tracking data may have been lost</div>
+          <button id="pixeltracer-refresh-page-btn" class="pixeltracer-btn">Refresh Page</button>
+        </div>
+      `;
+      emptyState.style.display = 'flex';
+      
+      // Add event listener to the refresh button
+      const refreshButton = document.getElementById('pixeltracer-refresh-page-btn');
+      if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    }
+  }
+}
+
+/**
+ * Show loading error in the Live View
+ */
+function showLoadingError() {
+  if (liveViewEnabled && liveViewEl) {
+    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+    if (emptyState) {
+      emptyState.innerHTML = `
+        <div class="data-loss-message">
+          <i class="fas fa-exclamation-triangle"></i>
+          <div>Failed to load tracking data</div>
+          <button id="pixeltracer-refresh-page-btn" class="pixeltracer-btn">Refresh Page</button>
+        </div>
+      `;
+      emptyState.style.display = 'flex';
+      
+      // Add event listener to the refresh button
+      const refreshButton = document.getElementById('pixeltracer-refresh-page-btn');
+      if (refreshButton) {
+        refreshButton.addEventListener('click', () => {
+          window.location.reload();
+        });
+      }
+    }
+  }
+}
+
+// Add styles for the refresh button
+function addRefreshButtonStyles() {
+  // Check if styles are already added
+  if (document.getElementById('pixeltracer-refresh-styles')) {
+    return;
+  }
+  
+  const styleElement = document.createElement('style');
+  styleElement.id = 'pixeltracer-refresh-styles';
+  styleElement.textContent = `
+    .pixeltracer-btn {
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 8px 16px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-top: 10px;
+      transition: background-color 0.2s;
     }
     
-    if (response && response.success && response.requests) {
-      // Update our local state
-      currentTabRequests = response.requests || [];
-      
-      // Make sure we have the requests container reference
-      if (liveViewEnabled && liveViewEl && !requestsContainer) {
-        requestsContainer = document.getElementById('pixeltracer-requests-container');
-      }
-      
-      // Only update UI if Live View is visible
-      if (liveViewEnabled && liveViewEl) {
-        // Update filter options based on new data
-        refreshFilters();
-        
-        updateStats();
-        refreshRequestList();
-        
-        // If we have requests but the UI shows nothing, try forcing a re-render
-        if (currentTabRequests.length > 0 && (!requestsList || requestsList.length === 0)) {
-          setTimeout(() => {
-            refreshRequestList();
-          }, 200);
-        }
-      }
-    } else {
-      // Try once more after a short delay (may be a timing issue)
-      setTimeout(() => retryLoadTrackingData(hostname), 500);
+    .pixeltracer-btn:hover {
+      background-color: #3a80d2;
     }
-  });
+    
+    .data-loss-message {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+    }
+    
+    .data-loss-message i {
+      font-size: 24px;
+      color: #f39c12;
+      margin-bottom: 8px;
+    }
+    
+    body.dark-theme .pixeltracer-btn {
+      background-color: #5a6af2;
+    }
+    
+    body.dark-theme .pixeltracer-btn:hover {
+      background-color: #4a5ae2;
+    }
+  `;
+  
+  document.head.appendChild(styleElement);
 }
 
 /**
@@ -264,49 +580,52 @@ function retryLoadTrackingData(hostname) {
     requestsContainer = document.getElementById('pixeltracer-requests-container');
   }
   
-  chrome.runtime.sendMessage({
-    action: 'getTrackingData',
-    tabId: currentTabId,
-    hostname: hostname
-  }, (response) => {
-    if (chrome.runtime.lastError) {
-      showLoadingError();
-      return;
-    }
-    
-    if (response && response.success) {
-      // Update our local state
-      currentTabRequests = response.requests || [];
-      
-      // Make sure we have the requests container reference
-      if (liveViewEnabled && liveViewEl && !requestsContainer) {
-        requestsContainer = document.getElementById('pixeltracer-requests-container');
-      }
-      
-      // Only update UI if Live View is visible
-      if (liveViewEnabled && liveViewEl) {
-        // Update filter options based on new data
-        refreshFilters();
+  try {
+    chrome.runtime.sendMessage({
+      action: 'getTrackingData',
+      tabId: currentTabId,
+      hostname: hostname
+    }, (response) => {
+      // Check for Chrome runtime errors - including context invalidation
+      if (chrome.runtime.lastError) {
+        console.log("Runtime error in retry:", chrome.runtime.lastError.message);
         
-        updateStats();
-        refreshRequestList();
+        // Check specifically for context invalidation
+        if (chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+          // Extension was reloaded or updated - show a refresh option to the user
+          showExtensionContextInvalidatedError();
+          return;
+        }
+        
+        showLoadingError();
+        return;
       }
-    } else {
-      showLoadingError();
-    }
-  });
-}
-
-/**
- * Show loading error in the Live View
- */
-function showLoadingError() {
-  if (liveViewEnabled && liveViewEl) {
-    const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
-    if (emptyState) {
-      emptyState.innerHTML = '<i class="fas fa-exclamation-triangle"></i> Failed to load tracking data';
-      emptyState.style.display = 'flex';
-    }
+      
+      if (response && response.success) {
+        // Update our local state
+        currentTabRequests = response.requests || [];
+        
+        // Make sure we have the requests container reference
+        if (liveViewEnabled && liveViewEl && !requestsContainer) {
+          requestsContainer = document.getElementById('pixeltracer-requests-container');
+        }
+        
+        // Only update UI if Live View is visible
+        if (liveViewEnabled && liveViewEl) {
+          // Update filter options based on new data
+          refreshFilters();
+          
+          updateStats();
+          refreshRequestList();
+        }
+      } else {
+        showLoadingError();
+      }
+    });
+  } catch (error) {
+    // Handle other errors gracefully
+    console.error("Error in retryLoadTrackingData:", error);
+    showLoadingError();
   }
 }
 
@@ -398,12 +717,23 @@ function displayChronologicalRequests(requests) {
   // Add requests to the UI (limited to prevent performance issues)
   const requestsToDisplay = sortedRequests.slice(0, MAX_DISPLAYED_REQUESTS);
   
-  // Make sure each request has the minimum required fields
+  // Debug logging to help troubleshoot
+  console.debug(`Displaying ${requestsToDisplay.length} requests in chronological view`);
+  
+  // Make sure each request has the minimum required fields and add to the UI
   requestsToDisplay.forEach(request => {
     if (request && request.providers && request.providers.length > 0) {
-      addRequestItemToUI(request);
+      // Create element with proper ID tracking
+      const requestEl = createRequestElement(request);
+      
+      // Add to DOM and tracking list
+      requestsContainer.appendChild(requestEl);
+      requestsList.push(requestEl);
     }
   });
+  
+  // Log the final count for verification
+  console.debug(`${requestsList.length} requests rendered in chronological view`);
 }
 
 /**
@@ -480,10 +810,9 @@ function displayGroupedRequests(requests) {
     const requestsContainer = document.createElement('div');
     requestsContainer.className = 'pixeltracer-provider-requests';
     
-    // Sort by timestamp (newest first) and limit the number of displayed requests
+    // Sort by timestamp (newest first) and display all requests
     providerRequests
       .sort((a, b) => b.timestamp - a.timestamp)
-      .slice(0, Math.min(5, providerRequests.length))
       .forEach(request => {
         const requestEl = createRequestElement(request);
         requestsContainer.appendChild(requestEl);
@@ -533,123 +862,162 @@ function displayGroupedRequests(requests) {
 
 // Listen for messages from the popup or background script
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  if (message.action === 'getPageInfo') {
-    // Collect information about the current page that might be relevant
-    const pageInfo = {
-      url: window.location.href,
-      title: document.title,
-      timestamp: Date.now()
-    };
+  // Skip handling messages if connection is lost
+  if (!connectionAlive && message.action !== 'ping') {
+    console.warn("Skipping message handling - extension connection lost");
     
-    sendResponse(pageInfo);
-  } else if (message.action === 'enableLiveView') {
-    createLiveView();
-    liveViewEnabled = true;
-    // Force data reload when enabling Live View
-    loadTrackingData();
-    saveLiveViewState('open');
-    sendResponse({ success: true });
-  } else if (message.action === 'disableLiveView') {
-    removeLiveView();
-    liveViewEnabled = false;
-    saveLiveViewState('closed');
-    sendResponse({ success: true });
-  } else if (message.action === 'themeChanged') {
-    // Update the theme for the Live View
-    isDarkMode = message.theme === 'dark';
-    updateLiveViewTheme();
-    sendResponse({ success: true });
-  } else if (message.action === 'refreshTracking') {
-    // Immediately refresh the tracking data
-    loadTrackingData();
-    sendResponse({ success: true });
-  } else if (message.action === 'trackingRequestDetected') {
-    // Make sure we have a valid request object
-    if (!message.request) {
-      sendResponse({ success: false, error: 'No request data' });
-      return true;
+    try {
+      // Try to respond if possible
+      sendResponse({ success: false, error: "Extension connection lost" });
+    } catch (e) {
+      // Cannot respond, context likely already invalid
     }
-    
-    // Ensure we have a valid tab ID
-    if (!currentTabId) {
-      getCurrentTabInfo();
-      // If we still don't have a tab ID after trying, store the request temporarily
-      if (!currentTabId) {
-        // Try once more after getting tab info
-        setTimeout(() => {
-          if (currentTabId && liveViewEnabled) {
-            processNewTrackingRequest(message.request);
-          }
-        }, 200);
-        sendResponse({ success: true });
+    return false; // Don't keep the channel open
+  }
+  
+  // Allow handling ping messages even if not otherwise processing messages
+  if (message.action === 'ping') {
+    // Update our connection status to alive
+    connectionAlive = true;
+    sendResponse({ success: true, alive: true });
+    return false; // No need to keep the messaging channel open
+  }
+  
+  // Wrap in try-catch to handle extension context invalidation
+  try {
+    if (message.action === 'getPageInfo') {
+      // Collect information about the current page that might be relevant
+      const pageInfo = {
+        url: window.location.href,
+        title: document.title,
+        timestamp: Date.now()
+      };
+      
+      sendResponse(pageInfo);
+    } else if (message.action === 'enableLiveView') {
+      createLiveView();
+      liveViewEnabled = true;
+      // Force data reload when enabling Live View
+      loadTrackingData();
+      saveLiveViewState('open');
+      sendResponse({ success: true });
+    } else if (message.action === 'disableLiveView') {
+      removeLiveView();
+      liveViewEnabled = false;
+      saveLiveViewState('closed');
+      sendResponse({ success: true });
+    } else if (message.action === 'themeChanged') {
+      // Update the theme for the Live View
+      isDarkMode = message.theme === 'dark';
+      updateLiveViewTheme();
+      sendResponse({ success: true });
+    } else if (message.action === 'refreshTracking') {
+      // Immediately refresh the tracking data
+      loadTrackingData();
+      sendResponse({ success: true });
+    } else if (message.action === 'trackingRequestDetected') {
+      // Make sure we have a valid request object
+      if (!message.request) {
+        sendResponse({ success: false, error: 'No request data' });
         return true;
       }
-    }
-    
-    // If Live View is enabled, process the request
-    if (liveViewEnabled) {
-      processNewTrackingRequest(message.request);
-    } else {
-      // Even if Live View is not enabled, store the request so it's available
-      // if Live View gets enabled later
-      addNewRequestToLocalStore(message.request);
-    }
-    
-    sendResponse({ success: true });
-  } else if (message.action === 'trackingDataCleared') {
-    // Tracking data was cleared by the popup
-    currentTabRequests = [];
-    
-    // Keep collapsedProviders state intact - just refresh the data display
-    refreshRequestList();
-    updateStats();
-    sendResponse({ success: true });
-  } else if (message.action === 'pageRefreshed') {
-    // Handle page refresh event from background script
-    
-    // Perform a complete reset of tracking data
-    if (message.completeReset) {
-      // Reset tracking data but preserve collapsed providers state
-      currentTabRequests = [];
       
-      // Update UI
-      if (liveViewEnabled && liveViewEl) {
-        updateStats();
-        refreshRequestList();
-        
-        // Show empty state
-        const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
-        if (emptyState) {
-          emptyState.textContent = "Waiting for tracking requests...";
-          emptyState.style.display = 'flex';
+      // Ensure we have a valid tab ID
+      if (!currentTabId) {
+        getCurrentTabInfo();
+        // If we still don't have a tab ID after trying, store the request temporarily
+        if (!currentTabId) {
+          // Try once more after getting tab info
+          setTimeout(() => {
+            if (currentTabId && liveViewEnabled && connectionAlive) {
+              processNewTrackingRequest(message.request);
+            }
+          }, 200);
+          sendResponse({ success: true });
+          return true;
         }
       }
-    } else {
-      // Fallback to hostname-based filtering if completeReset is not specified
-      const hostname = message.hostname;
-      if (hostname) {
-        // Filter out requests from the refreshed hostname
-        currentTabRequests = currentTabRequests.filter(req => req.host !== hostname);
+      
+      // If Live View is enabled, process the request
+      if (liveViewEnabled) {
+        processNewTrackingRequest(message.request);
+      } else {
+        // Even if Live View is not enabled, store the request so it's available
+        // if Live View gets enabled later
+        addNewRequestToLocalStore(message.request);
+      }
+      
+      sendResponse({ success: true });
+    } else if (message.action === 'trackingDataCleared') {
+      // Tracking data was cleared by the popup
+      currentTabRequests = [];
+      
+      // Keep collapsedProviders state intact - just refresh the data display
+      refreshRequestList();
+      updateStats();
+      sendResponse({ success: true });
+    } else if (message.action === 'pageRefreshed') {
+      // Handle page refresh event from background script
+      
+      // Perform a complete reset of tracking data
+      if (message.completeReset) {
+        // Reset tracking data but preserve collapsed providers state
+        currentTabRequests = [];
         
         // Update UI
         if (liveViewEnabled && liveViewEl) {
           updateStats();
           refreshRequestList();
+          
+          // Show empty state
+          const emptyState = liveViewEl.querySelector('.pixeltracer-empty-state');
+          if (emptyState) {
+            emptyState.textContent = "Waiting for tracking requests...";
+            emptyState.style.display = 'flex';
+          }
+        }
+      } else {
+        // Fallback to hostname-based filtering if completeReset is not specified
+        const hostname = message.hostname;
+        if (hostname) {
+          // Filter out requests from the refreshed hostname
+          currentTabRequests = currentTabRequests.filter(req => req.host !== hostname);
+          
+          // Update UI
+          if (liveViewEnabled && liveViewEl) {
+            updateStats();
+            refreshRequestList();
+          }
         }
       }
+      
+      sendResponse({ success: true });
+    } else if (message.action === 'forceRefreshLiveView') {
+      // Force a complete refresh of the Live View
+      if (liveViewEnabled) {
+        // Reset the current tracking data but preserve collapsed state
+        currentTabRequests = [];
+        
+        // Force reload data
+        loadTrackingData();
+      }
+      sendResponse({ success: true });
+    }
+  } catch (error) {
+    console.error("Error handling message:", error);
+    
+    // Check for extension context invalidation
+    if (error.message && error.message.includes("Extension context invalidated")) {
+      connectionAlive = false;
+      handleConnectionLost();
     }
     
-    sendResponse({ success: true });
-  } else if (message.action === 'forceRefreshLiveView') {
-    // Force a complete refresh of the Live View
-    if (liveViewEnabled) {
-      // Reset the current tracking data but preserve collapsed state
-      currentTabRequests = [];
-      
-      // Force reload data
-      loadTrackingData();
+    // Try to send a response if possible
+    try {
+      sendResponse({ success: false, error: error.message });
+    } catch (e) {
+      // Cannot send response, context is likely already invalid
     }
-    sendResponse({ success: true });
   }
   
   return true; // Required for async response
@@ -660,6 +1028,12 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * @param {Object} request - The tracking request object
  */
 function processNewTrackingRequest(request) {
+  // Skip if connection is lost
+  if (!connectionAlive) {
+    console.warn("Skipping processNewTrackingRequest - extension connection lost");
+    return;
+  }
+  
   // Skip if no request data
   if (!request) {
     return;
@@ -678,35 +1052,45 @@ function processNewTrackingRequest(request) {
     return;
   }
   
-  // Add to our local array
-  addNewRequestToLocalStore(request);
-  
-  // Update the UI stats
-  updateStats();
-  
-  // Check if this request introduces a new category that might need a filter option
-  const filterTypeSelect = document.getElementById('pixeltracer-filter-type');
-  if (filterTypeSelect && request.category) {
-    // Check if we need to add a new filter option
-    const needToAddFilter = !Array.from(filterTypeSelect.options).some(
-      option => option.value === request.category
-    );
+  try {
+    // Add to our local array
+    addNewRequestToLocalStore(request);
     
-    if (needToAddFilter) {
-      refreshFilters();
+    // Update the UI stats
+    updateStats();
+    
+    // Check if this request introduces a new category that might need a filter option
+    const filterTypeSelect = document.getElementById('pixeltracer-filter-type');
+    if (filterTypeSelect && request.category) {
+      // Check if we need to add a new filter option
+      const needToAddFilter = !Array.from(filterTypeSelect.options).some(
+        option => option.value === request.category
+      );
+      
+      if (needToAddFilter) {
+        refreshFilters();
+      }
     }
-  }
-  
-  // Add to UI only if Live View is visible and not minimized
-  if (liveViewEnabled && liveViewEl && !isLiveViewMinimized) {
-    // If we're in grouped view or if the filter would exclude this request,
-    // we need to refresh the entire list to maintain consistency
-    if (filterPreferences.viewMode === 'grouped' || 
-        (filterPreferences.filterType !== 'all' && request.category !== filterPreferences.filterType)) {
-      refreshRequestList();
-    } else {
-      // In chronological view with matching filter, simply add the new item
-      addRequestItemToUI(request);
+    
+    // Add to UI only if Live View is visible and not minimized
+    if (liveViewEnabled && liveViewEl && !isLiveViewMinimized) {
+      // If we're in grouped view or if the filter would exclude this request,
+      // we need to refresh the entire list to maintain consistency
+      if (filterPreferences.viewMode === 'grouped' || 
+          (filterPreferences.filterType !== 'all' && request.category !== filterPreferences.filterType)) {
+        refreshRequestList();
+      } else {
+        // In chronological view with matching filter, simply add the new item
+        addRequestItemToUI(request);
+      }
+    }
+  } catch (error) {
+    console.error("Error processing tracking request:", error);
+    
+    // Check if the error is related to connection loss
+    if (error.message && error.message.includes("Extension context invalidated")) {
+      connectionAlive = false;
+      handleConnectionLost();
     }
   }
 }
@@ -1390,12 +1774,15 @@ function createRequestElement(request) {
   const requestEl = document.createElement('div');
   requestEl.className = `pixeltracer-request-item pixeltracer-category-${request.category || 'analytics'}`;
   
+  // Add request ID to dataset for better tracking
+  const providerId = request.providers[0] || 'unknown';
+  requestEl.dataset.requestId = request.requestId || `req-${request.timestamp}-${providerId}`;
+  
   // Format time
   const time = new Date(request.timestamp);
   const timeString = time.toLocaleTimeString();
   
   // Get provider display name and account ID
-  const providerId = request.providers[0] || 'unknown';
   let providerName = formatProviderName(providerId);
   
   let accountId = '';
@@ -1468,18 +1855,11 @@ function addRequestItemToUI(request) {
     return;
   }
   
-  // Check if request already exists to prevent duplicates
-  const existingElements = Array.from(requestsContainer.querySelectorAll('.pixeltracer-request-item'));
-  const requestExists = existingElements.some(el => {
-    const timeEl = el.querySelector('.pixeltracer-event-time');
-    const titleEl = el.querySelector('.pixeltracer-request-title');
-    
-    if (!timeEl || !titleEl) return false;
-    
-    // Match based on timestamp and title content (imperfect but works in most cases)
-    const time = new Date(request.timestamp).toLocaleTimeString();
-    return timeEl.textContent === time && 
-           titleEl.textContent.includes(formatProviderName(request.providers[0]));
+  // Use requestId for duplicate detection instead of trying to compare DOM elements
+  // This is more reliable and less prone to errors
+  const requestExists = requestsList.some(existingEl => {
+    const requestId = existingEl.dataset.requestId;
+    return requestId && requestId === request.requestId;
   });
   
   // Skip if this is a duplicate
@@ -1818,6 +2198,9 @@ function refreshFilters() {
 
 // Function to create and show the Live View floating window
 function createLiveView() {
+  // Add refresh button styles
+  addRefreshButtonStyles();
+  
   // If it already exists, just show it
   if (liveViewEl) {
     liveViewEl.style.display = 'block';

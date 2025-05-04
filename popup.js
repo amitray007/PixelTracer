@@ -1,32 +1,120 @@
 // Get tracking providers from background script
 let trackingProviders = {};
 
-// DOM elements
-const totalRequestsElement = document.getElementById('total-requests');
-const uniqueProvidersElement = document.getElementById('unique-providers');
-const providersContainer = document.getElementById('providers-container');
-const requestsContainer = document.getElementById('requests-container');
-const clearDataButton = document.getElementById('clear-data');
-const exportDataButton = document.getElementById('export-data');
-const liveViewButton = document.getElementById('live-view-btn');
-const reportsButton = document.getElementById('reports-btn');
-const themeToggleButton = document.getElementById('theme-toggle-btn');
-const detailWindow = document.getElementById('detail-window');
-const reportsWindow = document.getElementById('reports-window');
-const detailOverlay = document.getElementById('detail-overlay');
-const detailTitle = document.getElementById('detail-title');
-const detailCloseBtn = document.getElementById('detail-close');
-const reportsCloseBtn = document.getElementById('reports-close');
+/**
+ * Helper function to safely get DOM elements with null checks
+ * @param {string} id - Element ID to find
+ * @returns {HTMLElement|null} - The element or null if not found
+ */
+function safeGetElement(id) {
+  return document.getElementById(id);
+}
+
+// DOM elements - get them safely
+const totalRequestsElement = safeGetElement('total-requests');
+const uniqueProvidersElement = safeGetElement('unique-providers');
+const providersContainer = safeGetElement('providers-container');
+const requestsContainer = safeGetElement('requests-container');
+const clearDataButton = safeGetElement('clear-data');
+const exportDataButton = safeGetElement('export-data');
+const liveViewButton = safeGetElement('live-view-btn');
+const reportsButton = safeGetElement('reports-btn');
+const themeToggleButton = safeGetElement('theme-toggle-btn');
+const detailWindow = safeGetElement('detail-window');
+const reportsWindow = safeGetElement('reports-window');
+const detailOverlay = safeGetElement('detail-overlay');
+const detailTitle = safeGetElement('detail-title');
+const detailCloseBtn = safeGetElement('detail-close');
+const reportsCloseBtn = safeGetElement('reports-close');
 const tabButtons = document.querySelectorAll('.tab-button');
 const tabPanes = document.querySelectorAll('.tab-pane');
-const collapseAllRequestsButton = document.getElementById('collapse-all-requests');
-const expandAllRequestsButton = document.getElementById('expand-all-requests');
+const collapseAllRequestsButton = safeGetElement('collapse-all-requests');
+const expandAllRequestsButton = safeGetElement('expand-all-requests');
 
 // State management
 let isLiveViewEnabled = false;
 let currentTabRequests = [];
 let currentPageUrl = '';
 let isDarkMode = false;
+let previousRequestCount = 0; // Track previous request count to detect data loss
+
+// Connection status monitor
+let extensionConnected = true;
+
+/**
+ * Check if content script is properly connected
+ * @param {number} tabId - The tab ID to check
+ * @returns {Promise<boolean>} - Whether connection is active
+ */
+async function checkContentScriptConnection(tabId) {
+  if (!tabId) return false;
+  
+  try {
+    // Try to send a ping message to the content script
+    const response = await chrome.tabs.sendMessage(tabId, { action: 'ping' });
+    return response && response.alive;
+  } catch (e) {
+    // If there's an error, consider the content script not connected
+    console.warn("Content script connection check failed:", e.message);
+    return false;
+  }
+}
+
+/**
+ * Handle content script connection issues
+ */
+function handleContentScriptDisconnection(tabId) {
+  extensionConnected = false;
+  
+  // Safely update UI elements
+  if (totalRequestsElement) {
+    totalRequestsElement.textContent = "!";
+  }
+  
+  if (uniqueProvidersElement) {
+    uniqueProvidersElement.textContent = "!";
+  }
+  
+  if (providersContainer) {
+    providersContainer.innerHTML = 
+      `<div class="data-loss-message">
+        <i class="fas fa-exclamation-triangle"></i>
+        <div>Extension connection issue detected.</div>
+        <button id="refresh-page-btn" class="refresh-btn">Refresh Page</button>
+        <button id="reload-extension-btn" class="refresh-btn">Reload Extension</button>
+      </div>`;
+  }
+  
+  if (requestsContainer) {
+    requestsContainer.innerHTML = 
+      `<div class="data-loss-message">
+        <i class="fas fa-info-circle"></i>
+        <div>This can happen after the extension is updated.</div>
+        <div>Refreshing the page should resolve this issue.</div>
+      </div>`;
+  }
+  
+  // Add event listeners for buttons
+  setTimeout(() => {
+    const refreshPageBtn = document.getElementById('refresh-page-btn');
+    const reloadExtBtn = document.getElementById('reload-extension-btn');
+    
+    if (refreshPageBtn) {
+      refreshPageBtn.addEventListener('click', () => {
+        if (tabId) {
+          chrome.tabs.reload(tabId);
+          window.close();
+        }
+      });
+    }
+    
+    if (reloadExtBtn) {
+      reloadExtBtn.addEventListener('click', () => {
+        chrome.runtime.reload();
+      });
+    }
+  }, 0);
+}
 
 // Get tracking providers data from the background script
 async function loadTrackingProviders() {
@@ -71,6 +159,22 @@ async function initPopup() {
     
     currentPageUrl = currentTab.url;
     
+    // Extract hostname for page-specific settings
+    let hostname = '';
+    try {
+      hostname = new URL(currentTab.url).hostname;
+    } catch (e) {
+      console.error("Error parsing URL:", e);
+    }
+    
+    // Check if content script is connected properly
+    const isConnected = await checkContentScriptConnection(currentTab.id);
+    if (!isConnected) {
+      console.warn("Content script connection test failed - extension may have been updated");
+      handleContentScriptDisconnection(currentTab.id);
+      return;
+    }
+    
     // Load tracking providers first
     await loadTrackingProviders();
     
@@ -84,10 +188,19 @@ async function initPopup() {
     setupDetailTabEvents();
     setupReportsTabEvents();
     
-    // Load settings from storage
-    chrome.storage.local.get(['pixelTracerSettings'], (result) => {
+    // Load settings from storage - check page-specific Live View settings
+    chrome.storage.local.get(['pixelTracerSettings', 'liveViewPages'], (result) => {
       const settings = result.pixelTracerSettings || {};
-      isLiveViewEnabled = settings.liveViewEnabled || false;
+      const liveViewPages = result.liveViewPages || {};
+      
+      // Default to disabled for new sites
+      isLiveViewEnabled = false;
+      
+      // Only enable if we have an explicit setting for this hostname that is true
+      if (hostname && liveViewPages.hasOwnProperty(hostname)) {
+        isLiveViewEnabled = !!liveViewPages[hostname]; // Cast to boolean
+      } 
+      // Don't use global setting - default is always off for new sites
       
       // Update Live View button state
       updateLiveViewButtonState();
@@ -105,6 +218,8 @@ async function initPopup() {
     try {
       chrome.tabs.sendMessage(currentTab.id, { action: 'getPageInfo' }, (response) => {
         if (chrome.runtime.lastError) {
+          // This is expected if the content script isn't loaded
+          // No need to handle the error here
           return;
         }
         
@@ -116,6 +231,7 @@ async function initPopup() {
       // Continue execution - this is not a critical error
     }
   } catch (error) {
+    console.error("Popup initialization error:", error);
     handleDataLoadError('Extension initialization error');
   }
 }
@@ -135,10 +251,14 @@ async function loadThemePreference() {
 function applyTheme() {
   if (isDarkMode) {
     document.body.classList.add('dark-mode');
-    themeToggleButton.innerHTML = '<i class="fas fa-sun"></i>';
+    if (themeToggleButton) {
+      themeToggleButton.innerHTML = '<i class="fas fa-sun"></i>';
+    }
   } else {
     document.body.classList.remove('dark-mode');
-    themeToggleButton.innerHTML = '<i class="fas fa-moon"></i>';
+    if (themeToggleButton) {
+      themeToggleButton.innerHTML = '<i class="fas fa-moon"></i>';
+    }
   }
 }
 
@@ -202,6 +322,8 @@ function setupEventListeners() {
 
 // Update the Live View button state
 function updateLiveViewButtonState() {
+  if (!liveViewButton) return;
+  
   if (isLiveViewEnabled) {
     liveViewButton.classList.add('active');
     liveViewButton.innerHTML = '<i class="fas fa-eye-slash"></i> Live View (On)';
@@ -214,16 +336,33 @@ function updateLiveViewButtonState() {
 // Toggle Live View state
 async function toggleLiveView() {
   const currentTab = await getCurrentTab();
+  
+  // Extract hostname from URL for page-specific settings
+  let hostname = '';
+  try {
+    hostname = new URL(currentTab.url).hostname;
+  } catch (e) {
+    console.error("Error parsing URL:", e);
+    return;
+  }
+  
+  // Toggle the current state
   isLiveViewEnabled = !isLiveViewEnabled;
   
   // Update button state
   updateLiveViewButtonState();
   
-  // Save setting
-  chrome.storage.local.get(['pixelTracerSettings'], (result) => {
-    const settings = result.pixelTracerSettings || {};
-    settings.liveViewEnabled = isLiveViewEnabled;
-    chrome.storage.local.set({ pixelTracerSettings: settings });
+  // Save setting for this specific hostname only
+  chrome.storage.local.get(['liveViewPages'], (result) => {
+    const liveViewPages = result.liveViewPages || {};
+    
+    // Update setting for this specific hostname
+    liveViewPages[hostname] = isLiveViewEnabled;
+    
+    // Save back to storage
+    chrome.storage.local.set({ liveViewPages });
+    
+    // No longer maintaining global setting - each page has its own setting
   });
   
   // Enable or disable Live View on the page
@@ -291,97 +430,136 @@ function loadTrackingDataWithRetry(tabId, retryCount = 0) {
   }
 }
 
-// Load tracking data for the current tab
-function loadTrackingData(tabId) {
+// Load tracking data from the background script
+async function loadTrackingData(tabId) {
+  // Get the current tab
+  const tab = await getCurrentTab();
+  if (!tab) {
+    handleDataLoadError('Could not determine current tab');
+    return;
+  }
+  
+  // Make sure the connection is still active
+  if (!extensionConnected) {
+    console.warn("Not loading tracking data - extension connection issues detected");
+    handleContentScriptDisconnection(tab.id);
+    return;
+  }
+  
+  // Store the previous count before clearing
+  previousRequestCount = currentTabRequests.length;
+  
+  // Add a loading state
+  providersContainer.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading tracking data...</div>';
+  requestsContainer.innerHTML = '<div class="loading-state"><i class="fas fa-spinner fa-spin"></i> Loading tracking data...</div>';
+  
   try {
-    // Validate the current URL
-    if (!currentPageUrl) {
-      handleDataLoadError('No URL information available');
+    // Double-check connection with content script
+    const isConnected = await checkContentScriptConnection(tab.id);
+    if (!isConnected) {
+      console.warn("Content script connection check failed before data load");
+      handleContentScriptDisconnection(tab.id);
       return;
     }
     
-    // Get the current hostname from the URL
-    let hostname;
-    try {
-      hostname = new URL(currentPageUrl).hostname;
-    } catch (error) {
-      handleDataLoadError('Invalid URL format');
-      return;
-    }
+    // Request tracking data from the background script
+    const hostname = new URL(tab.url).hostname;
     
-    // Ensure hostname is valid
-    if (!hostname) {
-      handleDataLoadError('Could not determine website hostname');
-      return;
-    }
-    
-    
-    // Reset any cached data
-    currentTabRequests = [];
-    
-    // Get tracking data from the background page
     chrome.runtime.sendMessage({
       action: 'getTrackingData',
-      tabId: tabId,
+      tabId: tab.id,
       hostname: hostname
     }, (response) => {
-      // Check for Chrome runtime errors first
+      // Check for runtime errors
       if (chrome.runtime.lastError) {
-        handleDataLoadError('Browser communication error');
-        return;
-      }
-      
-      if (response && response.success && response.requests) {
-        // Use the data from the background page
-        currentTabRequests = response.requests;
+        console.warn("Runtime error:", chrome.runtime.lastError.message);
         
-        // Check if we got any data - if not, it might be a persistence issue
-        if (currentTabRequests.length === 0) {
-          // We might want to try again once to see if it's just a timing issue
-          setTimeout(() => {
-            retryLoadingData(tabId, hostname);
-          }, 500);
+        // Check specifically for context invalidation
+        if (chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+          // Extension was reloaded or updated - show a specific message
+          handleExtensionContextInvalidated();
           return;
         }
         
-        // Update stats
-        totalRequestsElement.textContent = currentTabRequests.length;
-        
-        // Get unique providers
-        const uniqueProviders = new Set();
-        currentTabRequests.forEach(request => {
+        handleDataLoadError('Communication error');
+        return;
+      }
+      
+      // Check for invalid response
+      if (!response || !response.success) {
+        handleDataLoadError('No data received');
+        return;
+      }
+      
+      // Process the data
+      currentTabRequests = response.requests || [];
+      
+      // Update UI with results
+      totalRequestsElement.textContent = currentTabRequests.length;
+      
+      const uniqueProviders = new Set();
+      currentTabRequests.forEach(request => {
+        if (request && request.providers) {
           request.providers.forEach(provider => uniqueProviders.add(provider));
-        });
-        
-        uniqueProvidersElement.textContent = uniqueProviders.size;
-        
-        // Render providers
-        renderProviders(uniqueProviders);
-        
-        // Render recent requests
-        renderRequests(currentTabRequests);
+        }
+      });
+      
+      uniqueProvidersElement.textContent = uniqueProviders.size;
+      
+      if (currentTabRequests.length === 0) {
+        // Check if we potentially lost data
+        if (previousRequestCount > 0) {
+          // We had data before but now it's gone - show lost data message
+          showDataLossMessage();
+        } else {
+          // Regular empty state
+          providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
+          requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
+        }
       } else {
-        // Error or no data
-        const errorMessage = response?.error || 'Unknown error loading tracking data';
-        handleDataLoadError(errorMessage);
+        // We have data, render it
+        renderProviders(uniqueProviders);
+        renderRequests(currentTabRequests);
       }
     });
   } catch (error) {
-    handleDataLoadError('Unexpected error loading data');
+    console.error("Error in loadTrackingData:", error);
+    
+    // Check for connection issues
+    if (error.message && error.message.includes("Extension context invalidated")) {
+      handleContentScriptDisconnection(tab.id);
+    } else {
+      handleDataLoadError('Error loading data');
+    }
   }
 }
 
-// Function to handle error loading data
-function handleDataLoadError(errorMessage = 'Failed to load tracking data') {
-  totalRequestsElement.textContent = "0";
-  uniqueProvidersElement.textContent = "0";
-  providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
-  requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. Try refreshing the page.</div>';
+// Handle extension context invalidation specifically
+function handleExtensionContextInvalidated() {
+  totalRequestsElement.textContent = "!";
+  uniqueProvidersElement.textContent = "!";
+  providersContainer.innerHTML = '<div class="data-loss-message"><i class="fas fa-exclamation-triangle"></i> Extension has been updated or reloaded. <button id="refresh-extension-btn" class="refresh-btn">Reload Extension</button></div>';
+  requestsContainer.innerHTML = '<div class="data-loss-message"><i class="fas fa-exclamation-triangle"></i> Please refresh the page to continue. <button id="refresh-page-btn" class="refresh-btn">Refresh Page</button></div>';
+  
+  // Add event listeners to refresh buttons
+  setTimeout(() => {
+    const refreshExtBtn = document.getElementById('refresh-extension-btn');
+    const refreshPageBtn = document.getElementById('refresh-page-btn');
+    
+    if (refreshExtBtn) {
+      refreshExtBtn.addEventListener('click', () => {
+        chrome.runtime.reload();
+      });
+    }
+    
+    if (refreshPageBtn) {
+      refreshPageBtn.addEventListener('click', refreshCurrentPage);
+    }
+  }, 0);
 }
 
 // Retry loading data once
 function retryLoadingData(tabId, hostname) {
-  
   try {
     chrome.runtime.sendMessage({
       action: 'getTrackingData',
@@ -390,6 +568,15 @@ function retryLoadingData(tabId, hostname) {
     }, (response) => {
       // Check for runtime errors
       if (chrome.runtime.lastError) {
+        console.log("Runtime error on retry:", chrome.runtime.lastError.message);
+        
+        // Check specifically for context invalidation
+        if (chrome.runtime.lastError.message.includes("Extension context invalidated")) {
+          // Extension was reloaded or updated - show a specific message
+          handleExtensionContextInvalidated();
+          return;
+        }
+        
         handleDataLoadError('Communication error during retry');
         return;
       }
@@ -416,9 +603,15 @@ function retryLoadingData(tabId, hostname) {
       uniqueProvidersElement.textContent = uniqueProviders.size;
       
       if (currentTabRequests.length === 0) {
-        // Still no data, show proper empty state (this is likely a valid empty state, not an error)
-        providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
-        requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
+        // Check if we potentially lost data
+        if (previousRequestCount > 0) {
+          // We had data before but now it's gone - show lost data message
+          showDataLossMessage();
+        } else {
+          // Still no data, show proper empty state (this is likely a valid empty state, not an error)
+          providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-satellite-dish"></i> No tracking providers detected yet</div>';
+          requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exchange-alt"></i> No tracking requests detected yet</div>';
+        }
       } else {
         // We have data, render it
         renderProviders(uniqueProviders);
@@ -426,9 +619,225 @@ function retryLoadingData(tabId, hostname) {
       }
     });
   } catch (error) {
+    console.error("Error during retry:", error);
     handleDataLoadError('Error during data retry');
   }
 }
+
+// Function to handle error loading data
+function handleDataLoadError(errorMessage = 'Failed to load tracking data') {
+  if (totalRequestsElement) {
+    totalRequestsElement.textContent = "0";
+  }
+  
+  if (uniqueProvidersElement) {
+    uniqueProvidersElement.textContent = "0";
+  }
+  
+  if (providersContainer) {
+    providersContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. <button id="refresh-page-btn" class="refresh-btn">Refresh Page</button></div>';
+  }
+  
+  if (requestsContainer) {
+    requestsContainer.innerHTML = '<div class="empty-state"><i class="fas fa-exclamation-triangle"></i> Could not load tracking data. <button id="refresh-page-btn-2" class="refresh-btn">Refresh Page</button></div>';
+  }
+  
+  // Add event listeners to refresh buttons
+  setTimeout(() => {
+    const refreshBtn1 = document.getElementById('refresh-page-btn');
+    const refreshBtn2 = document.getElementById('refresh-page-btn-2');
+    
+    if (refreshBtn1) {
+      refreshBtn1.addEventListener('click', refreshCurrentPage);
+    }
+    
+    if (refreshBtn2) {
+      refreshBtn2.addEventListener('click', refreshCurrentPage);
+    }
+  }, 0);
+}
+
+// Show data loss message with refresh option
+function showDataLossMessage() {
+  if (totalRequestsElement) {
+    totalRequestsElement.textContent = "0";
+  }
+  
+  if (uniqueProvidersElement) {
+    uniqueProvidersElement.textContent = "0";
+  }
+  
+  if (providersContainer) {
+    providersContainer.innerHTML = '<div class="data-loss-message"><i class="fas fa-exclamation-triangle"></i> Tracking data may have been lost. <button id="refresh-page-btn" class="refresh-btn">Refresh Page</button></div>';
+  }
+  
+  if (requestsContainer) {
+    requestsContainer.innerHTML = '<div class="data-loss-message"><i class="fas fa-exclamation-triangle"></i> Tracking data may have been lost. <button id="refresh-page-btn-2" class="refresh-btn">Refresh Page</button></div>';
+  }
+  
+  // Add event listeners to refresh buttons
+  setTimeout(() => {
+    const refreshBtn1 = document.getElementById('refresh-page-btn');
+    const refreshBtn2 = document.getElementById('refresh-page-btn-2');
+    
+    if (refreshBtn1) {
+      refreshBtn1.addEventListener('click', refreshCurrentPage);
+    }
+    
+    if (refreshBtn2) {
+      refreshBtn2.addEventListener('click', refreshCurrentPage);
+    }
+  }, 0);
+}
+
+// Function to refresh the current page
+async function refreshCurrentPage() {
+  const tab = await getCurrentTab();
+  if (tab) {
+    chrome.tabs.reload(tab.id);
+    window.close(); // Close the popup as the page refreshes
+  }
+}
+
+// Add styles for refresh buttons
+function addRefreshButtonStyles() {
+  const styleEl = document.createElement('style');
+  styleEl.textContent = `
+    .refresh-btn {
+      background-color: #4a90e2;
+      color: white;
+      border: none;
+      border-radius: 4px;
+      padding: 4px 10px;
+      margin-left: 8px;
+      cursor: pointer;
+      font-size: 12px;
+      transition: background-color 0.2s;
+    }
+    
+    .refresh-btn:hover {
+      background-color: #3a80d2;
+    }
+    
+    .data-loss-message {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 20px;
+      color: #e67e22;
+    }
+    
+    .data-loss-message i {
+      font-size: 24px;
+      margin-bottom: 10px;
+    }
+    
+    .data-loss-message .refresh-btn {
+      margin-top: 10px;
+    }
+    
+    body.dark-theme .refresh-btn {
+      background-color: #5a6af2;
+    }
+    
+    body.dark-theme .refresh-btn:hover {
+      background-color: #4a5ae2;
+    }
+  `;
+  document.head.appendChild(styleEl);
+}
+
+// Initialize on document load
+document.addEventListener('DOMContentLoaded', async () => {
+  // Add refresh button styles
+  addRefreshButtonStyles();
+  
+  // Get current tab information
+  const tab = await getCurrentTab();
+  
+  if (tab) {
+    currentPageUrl = tab.url;
+    const pageUrlElement = document.getElementById('page-url');
+    if (pageUrlElement) {
+      try {
+        pageUrlElement.textContent = new URL(tab.url).hostname;
+      } catch (e) {
+        pageUrlElement.textContent = "Unknown";
+        console.error("Error parsing URL:", e);
+      }
+    }
+    
+    // Extract hostname for page-specific settings
+    let hostname = '';
+    try {
+      hostname = new URL(tab.url).hostname;
+    } catch (e) {
+      console.error("Error parsing URL:", e);
+    }
+    
+    // Check if Live View is enabled for this specific page
+    chrome.storage.local.get(['liveViewPages'], (result) => {
+      const liveViewPages = result.liveViewPages || {};
+      
+      // Default to disabled for new sites
+      isLiveViewEnabled = false;
+      
+      // Only enable if we have an explicit setting for this hostname that is true
+      if (hostname && liveViewPages.hasOwnProperty(hostname)) {
+        isLiveViewEnabled = !!liveViewPages[hostname]; // Cast to boolean
+      }
+      
+      updateLiveViewButtonState();
+    });
+    
+    // Load theme setting
+    chrome.storage.local.get(['pixelTracerTheme'], (result) => {
+      isDarkMode = result.pixelTracerTheme === 'dark';
+      applyTheme();
+    });
+    
+    // Load tracking providers
+    await loadTrackingProviders();
+    
+    // Load tracking data from the background script
+    loadTrackingData(tab.id);
+  } else {
+    handleDataLoadError('Unable to get current tab information');
+  }
+  
+  // Set up button event listeners - make sure all elements exist before adding listeners
+  if (clearDataButton) clearDataButton.addEventListener('click', clearData);
+  if (exportDataButton) exportDataButton.addEventListener('click', exportData);
+  if (liveViewButton) liveViewButton.addEventListener('click', toggleLiveView);
+  if (reportsButton) reportsButton.addEventListener('click', showReports);
+  if (themeToggleButton) themeToggleButton.addEventListener('click', toggleTheme);
+  if (detailCloseBtn) detailCloseBtn.addEventListener('click', closeDetailWindow);
+  if (reportsCloseBtn) reportsCloseBtn.addEventListener('click', closeReports);
+  
+  if (collapseAllRequestsButton) collapseAllRequestsButton.addEventListener('click', collapseAllRequests);
+  if (expandAllRequestsButton) expandAllRequestsButton.addEventListener('click', expandAllRequests);
+  
+  // Set up tab functionality
+  if (tabButtons && tabButtons.length > 0) {
+    tabButtons.forEach(button => {
+      button.addEventListener('click', () => {
+        const tabName = button.getAttribute('data-tab');
+        
+        // Remove active class from all buttons and panes
+        tabButtons.forEach(btn => btn.classList.remove('active'));
+        tabPanes.forEach(pane => pane.classList.remove('active'));
+        
+        // Add active class to the selected button and pane
+        button.classList.add('active');
+        const tabElement = document.getElementById(`tab-${tabName}`);
+        if (tabElement) {
+          tabElement.classList.add('active');
+        }
+      });
+    });
+  }
+});
 
 // Render the list of detected providers
 function renderProviders(uniqueProviders) {
@@ -479,9 +888,17 @@ function renderProviders(uniqueProviders) {
  * @param {array} requests - Array of requests for this provider
  */
 function showProviderSummary(provider, providerId, requests) {
-  detailTitle.textContent = `${provider.name} Summary`;
-  detailWindow.classList.add('visible');
-  detailOverlay.classList.add('visible');
+  if (detailTitle) {
+    detailTitle.textContent = `${provider.name} Summary`;
+  }
+  
+  if (detailWindow) {
+    detailWindow.classList.add('visible');
+  }
+  
+  if (detailOverlay) {
+    detailOverlay.classList.add('visible');
+  }
   
   // Show only the general tab for provider summary
   setActiveTab('general');
@@ -492,6 +909,10 @@ function showProviderSummary(provider, providerId, requests) {
   });
   
   const generalContent = document.getElementById('general-content');
+  if (!generalContent) {
+    console.error('General content element not found');
+    return;
+  }
   
   // Get account IDs from requests
   const accountIds = new Set();
@@ -585,8 +1006,8 @@ function renderRequests(requests) {
   // Sort by timestamp descending (newest first)
   const sortedRequests = [...requests].sort((a, b) => b.timestamp - a.timestamp);
   
-  // Take only the most recent 15 requests
-  const recentRequests = sortedRequests.slice(0, 15);
+  // Take only the most recent 100 requests
+  const recentRequests = sortedRequests.slice(0, 100);
   
   recentRequests.forEach(request => {
     // Get the first provider for this request (primary provider)
@@ -605,7 +1026,8 @@ function renderRequests(requests) {
     
     const requestElement = document.createElement('div');
     requestElement.className = 'request-item';
-    requestElement.dataset.requestId = request.requestId;
+    // Ensure every request element has a requestId for tracking
+    requestElement.dataset.requestId = request.requestId || `req-${request.timestamp}-${primaryProviderId}`;
     
     // Format the account ID display
     const accountDisplay = request.accountId ? ` (${request.accountId})` : '';
@@ -694,9 +1116,17 @@ function expandAllRequests() {
  * @param {object} request - The request data
  */
 function showDetailWindow(providerName, providerId, request) {
-  detailTitle.textContent = `${providerName} Request Details`;
-  detailWindow.classList.add('visible');
-  detailOverlay.classList.add('visible');
+  if (detailTitle) {
+    detailTitle.textContent = `${providerName} Request Details`;
+  }
+  
+  if (detailWindow) {
+    detailWindow.classList.add('visible');
+  }
+  
+  if (detailOverlay) {
+    detailOverlay.classList.add('visible');
+  }
   
   // Make sure all tabs are visible when showing request details
   document.querySelectorAll('.tab-button').forEach(btn => {
@@ -707,16 +1137,18 @@ function showDetailWindow(providerName, providerId, request) {
   setActiveTab('general');
   
   // Setup tab button click handlers
-  const detailTabButtons = detailWindow.querySelectorAll('.tab-button');
-  detailTabButtons.forEach(button => {
-    // Remove any existing listeners to prevent duplicates
-    const newButton = button.cloneNode(true);
-    button.parentNode.replaceChild(newButton, button);
-    newButton.addEventListener('click', () => {
-      const tabName = newButton.getAttribute('data-tab');
-      setActiveTab(tabName);
+  if (detailWindow) {
+    const detailTabButtons = detailWindow.querySelectorAll('.tab-button');
+    detailTabButtons.forEach(button => {
+      // Remove any existing listeners to prevent duplicates
+      const newButton = button.cloneNode(true);
+      button.parentNode.replaceChild(newButton, button);
+      newButton.addEventListener('click', () => {
+        const tabName = newButton.getAttribute('data-tab');
+        setActiveTab(tabName);
+      });
     });
-  });
+  }
   
   // Fill tab content
   fillGeneralTab(providerId, request);
@@ -730,8 +1162,13 @@ function showDetailWindow(providerName, providerId, request) {
  * Close the detail window
  */
 function closeDetailWindow() {
-  detailWindow.classList.remove('visible');
-  detailOverlay.classList.remove('visible');
+  if (detailWindow) {
+    detailWindow.classList.remove('visible');
+  }
+  
+  if (detailOverlay) {
+    detailOverlay.classList.remove('visible');
+  }
 }
 
 /**
@@ -741,7 +1178,16 @@ function closeDetailWindow() {
  */
 function fillGeneralTab(providerId, request) {
   const provider = trackingProviders[providerId];
+  if (!provider) {
+    console.error('Provider not found:', providerId);
+    return;
+  }
+  
   const generalContent = document.getElementById('general-content');
+  if (!generalContent) {
+    console.error('General content element not found');
+    return;
+  }
   
   // Format event type display name
   let eventTypeName = 'Unknown';
@@ -1629,8 +2075,7 @@ function generatePrivacyReport() {
   }
   
   // Build HTML
-  let html = `
-    <div class="report-section">
+  let html = `    <div class="report-section">
       <h3 class="report-section-title">Privacy Risk Assessment</h3>
       <div class="privacy-score-container">
         <div class="privacy-score-circle" style="background: conic-gradient(${riskColor} ${privacyScore}%, #e0e0e0 0);">

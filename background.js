@@ -581,6 +581,12 @@ chrome.webRequest.onCompleted.addListener(
 
 // Listen for messages from content script or popup
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  // Add a message listener for ping messages (used by content scripts to check connection)
+  if (message.action === 'ping') {
+    sendResponse({ success: true, alive: true });
+    return false; // Don't need to keep the messaging channel open
+  }
+  
   // Handle getProviderInfo request
   if (message.action === 'getProviderInfo') {
     const providerId = message.providerId;
