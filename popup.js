@@ -1,4 +1,5 @@
-import { trackingProviders } from './trackingProviders.js';
+// Get tracking providers from background script
+let trackingProviders = {};
 
 // DOM elements
 const totalRequestsElement = document.getElementById('total-requests');
@@ -26,6 +27,20 @@ let isLiveViewEnabled = false;
 let currentTabRequests = [];
 let currentPageUrl = '';
 let isDarkMode = false;
+
+// Get tracking providers data from the background script
+async function loadTrackingProviders() {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: 'getProviderInfo', providerId: 'all' }, (response) => {
+      if (response && response.success && response.allProviders) {
+        trackingProviders = response.allProviders;
+        resolve(trackingProviders);
+      } else {
+        resolve({});
+      }
+    });
+  });
+}
 
 // Get the current tab
 async function getCurrentTab() {
@@ -56,7 +71,10 @@ async function initPopup() {
     
     currentPageUrl = currentTab.url;
     
-    // Load theme first
+    // Load tracking providers first
+    await loadTrackingProviders();
+    
+    // Load theme preference
     await loadThemePreference();
     
     // Setup all button event listeners
@@ -91,6 +109,7 @@ async function initPopup() {
         }
         
         if (response) {
+          // Could store page info here if needed
         }
       });
     } catch (error) {
@@ -139,7 +158,9 @@ async function toggleTheme() {
     chrome.tabs.sendMessage(currentTab.id, { 
       action: 'themeChanged',
       theme: isDarkMode ? 'dark' : 'light'
-    }).catch(err =>);
+    }).catch(err => {
+      // Ignore errors - content script may not be loaded
+    });
   }
 }
 
@@ -147,16 +168,16 @@ async function toggleTheme() {
 function setupEventListeners() {
   
   // Check if all required elements exist
-  if (!clearDataButton)
-  if (!exportDataButton)
-  if (!liveViewButton)
-  if (!reportsButton)
-  if (!themeToggleButton)
-  if (!detailCloseBtn)
-  if (!reportsCloseBtn)
-  if (!detailOverlay)
-  if (!collapseAllRequestsButton)
-  if (!expandAllRequestsButton)
+  if (!clearDataButton) return;
+  if (!exportDataButton) return;
+  if (!liveViewButton) return;
+  if (!reportsButton) return;
+  if (!themeToggleButton) return;
+  if (!detailCloseBtn) return;
+  if (!reportsCloseBtn) return;
+  if (!detailOverlay) return;
+  if (!collapseAllRequestsButton) return;
+  if (!expandAllRequestsButton) return;
   
   // Attach button event listeners
   if (clearDataButton) clearDataButton.addEventListener('click', clearData);

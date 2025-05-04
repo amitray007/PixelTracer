@@ -1,18 +1,315 @@
-import { trackingProviders } from './trackingProviders.js';
+// Define providers directly in the background script
+// rather than using ES module imports
+const trackingProviders = {
+  // TikTok Provider
+  'tiktok': {
+    name: 'TikTok',
+    description: 'TikTok Tracking Events',
+    patterns: [
+      /https:\/\/analytics\.tiktok\.com\/api\/v[0-9]\/(?:track|pixel)/
+    ],
+    category: 'marketing',
+    schema: {
+      eventTypes: {
+        'page_view': 'Page View',
+        'ViewContent': 'View Content',
+        'ClickButton': 'Click Button',
+        'AddToCart': 'Add to Cart',
+        'Purchase': 'Purchase',
+        'CompletePayment': 'Complete Payment',
+        'Subscribe': 'Subscribe'
+      },
+      groups: {
+        'event': {
+          title: 'Event',
+          fields: [
+            { key: 'event', label: 'Event' },
+            { key: 'sdkid', label: 'SDK ID' },
+            { key: 'analytics_uniq_id', label: 'Analytics Unique ID' },
+            { key: 'timestamp', label: 'Timestamp' }
+          ]
+        },
+        'context': {
+          title: 'Context',
+          fields: [
+            { key: 'context.ad.ad_id', label: 'Ad ID' },
+            { key: 'context.ad.callback', label: 'Ad Callback' },
+            { key: 'context.ad.convert_id', label: 'Ad Conversion ID' },
+            { key: 'context.ad.creative_id', label: 'Ad Creative ID' },
+            { key: 'context.ad.idc', label: 'Ad IDC' },
+            { key: 'context.ad.log_extra', label: 'Ad Log Extra' },
+            { key: 'context.ad.req_id', label: 'Ad Request ID' },
+            { key: 'context.library.name', label: 'Library Name' },
+            { key: 'context.library.version', label: 'Library Version' },
+            { key: 'context.page.referrer', label: 'Page Referrer' },
+            { key: 'context.page.url', label: 'Page URL' },
+            { key: 'context.pixel.code', label: 'Pixel Code' },
+            { key: 'context.user.device_id', label: 'Device ID' },
+            { key: 'context.user.user_id', label: 'User ID' }
+          ]
+        }
+      },
+      // Custom parsing functions for TikTok data
+      parseAccount: (params, payload) => {
+        if (payload && payload.context && payload.context.pixel && payload.context.pixel.code) {
+          return payload.context.pixel.code;
+        }
+        return '';
+      },
+      parseEventType: (params, payload) => {
+        if (payload && payload.event) {
+          return payload.event;
+        }
+        return 'Unknown';
+      }
+    }
+  },
+
+  // Google Ads Provider
+  'google-ads': {
+    name: 'Google Ads',
+    description: 'Google\'s advertising platform tracking',
+    patterns: [
+      /\/pagead\/(?:viewthrough)conversion/
+    ],
+    category: 'marketing',
+    schema: {
+      eventTypes: {
+        'conversion': 'Conversion',
+        'remarketing': 'Remarketing',
+        'viewthroughconversion': 'View Through Conversion'
+      },
+      groups: {
+        'general': {
+          title: 'General',
+          fields: [
+            { key: 'url', label: 'Page URL' },
+            { key: 'tiba', label: 'Page Title' },
+            { key: 'data', label: 'Event Data' },
+            { key: 'label', label: 'Conversion Label' }
+          ]
+        }
+      },
+      // Custom parsing functions for Google Ads data
+      parseAccount: (params, url) => {
+        const pathParts = url.pathname.match(/\/([^/]+)\/(?:AW-)?(\d+)\/?$/);
+        if (pathParts && pathParts[2]) {
+          let account = "AW-" + pathParts[2];
+          
+          // Add the conversion label if available
+          if (params.get('label')) {
+            account += "/" + params.get('label');
+          }
+          
+          return account;
+        }
+        return '';
+      },
+      parseEventType: (params, url) => {
+        const pathParts = url.pathname.match(/\/([^/]+)\/(?:AW-)?(\d+)\/?$/);
+        let requestType = '';
+        
+        const data = params.get('data') || '';
+        const dataEvent = data.match(/event=([^;]+)(?:$|;)/);
+        
+        if (dataEvent && dataEvent.length) {
+          if (dataEvent[1] === 'gtag.config') {
+            requestType = 'Page View';
+          } else {
+            requestType = dataEvent[1];
+          }
+        } else if (pathParts && pathParts[1]) {
+          requestType = (pathParts[1] === 'viewthroughconversion') ? 'Conversion' : pathParts[1].replace('viewthrough', '');
+        }
+        
+        return requestType;
+      }
+    }
+  },
+
+  // Facebook Pixel Provider
+  'facebook-pixel': {
+    name: 'Facebook Pixel',
+    description: 'Facebook\'s tracking pixel',
+    patterns: [
+      /facebook\.com\/tr\/?(?!.*&ev=microdata)\?/i
+    ],
+    category: 'marketing',
+    schema: {
+      eventTypes: {
+        'PageView': 'Page View',
+        'ViewContent': 'View Content',
+        'AddToCart': 'Add to Cart',
+        'Purchase': 'Purchase',
+        'Lead': 'Lead',
+        'CompleteRegistration': 'Registration'
+      },
+      groups: {
+        'general': {
+          title: 'General',
+          fields: [
+            { key: 'id', label: 'Account ID' },
+            { key: 'ev', label: 'Event Type' },
+            { key: 'dl', label: 'Page URL' },
+            { key: 'rl', label: 'Referring URL' },
+            { key: 'ts', label: 'Timestamp' },
+            { key: 'ud[uid]', label: 'User ID' }
+          ]
+        },
+        'custom': {
+          title: 'Event Data',
+          fields: [
+            { key: 'cd[content_name]', label: 'Content Name' },
+            { key: 'cd[content_category]', label: 'Content Category' },
+            { key: 'cd[content_type]', label: 'Content Type' },
+            { key: 'cd[num_items]', label: 'Quantity' },
+            { key: 'cd[search_string]', label: 'Search Keyword' },
+            { key: 'cd[status]', label: 'Registration Status' },
+            { key: 'cd[value]', label: 'Value' },
+            { key: 'cd[currency]', label: 'Currency' }
+          ]
+        },
+        'products': {
+          title: 'Products',
+          fields: [
+            { key: 'cd[content_ids]', label: 'Product IDs' }
+          ]
+        }
+      },
+      // Custom parsing functions for Facebook Pixel
+      parseAccount: (params) => {
+        return params.get('id') || '';
+      },
+      parseEventType: (params) => {
+        return params.get('ev') || '';
+      },
+      // Custom handler for Facebook Contents data
+      parseContents: (params) => {
+        const content = params.get('cd[contents]');
+        if (!content) return [];
+        
+        let results = [];
+        try {
+          let jsonData = JSON.parse(content);
+          if (jsonData && jsonData.length) {
+            let keyMapping = {
+              "id": "ID",
+              "item_price": "Price",
+              "quantity": "Quantity"
+            };
+            
+            jsonData.forEach((product, index) => {
+              Object.entries(product).forEach(([key, value]) => {
+                results.push({
+                  key: `cd[contents][${index}][${key}]`,
+                  field: `Product ${index+1} ${keyMapping[key] || key}`,
+                  value: value,
+                  group: 'products'
+                });
+              });
+            });
+          }
+        } catch(e) {
+          // Not valid JSON, add as is
+          results.push({
+            key: 'cd[contents]',
+            field: 'Content',
+            value: content,
+            group: 'products'
+          });
+        }
+        
+        return results;
+      }
+    }
+  },
+
+  // Standard Google Analytics
+  'google-analytics': {
+    name: 'Google Analytics',
+    description: 'Google\'s web analytics service',
+    patterns: [
+      'google-analytics.com',
+      'analytics.google.com',
+      /collect\?v=\d+(&|$)/,
+      /gtag\/js\?id=G-/,
+      /gtag\/js\?id=UA-/
+    ],
+    category: 'analytics',
+    schema: {
+      // Maps event types to display names
+      eventTypes: {
+        'pageview': 'Page View',
+        'event': 'Event',
+        'transaction': 'Transaction',
+        'item': 'Item',
+        'social': 'Social',
+        'exception': 'Exception',
+        'timing': 'Timing',
+        'screenview': 'Screen View'
+      },
+      // Groups to display in the UI
+      groups: {
+        'general': {
+          title: 'General',
+          fields: [
+            { key: 'tid', label: 'Tracking ID' },
+            { key: 'v', label: 'Protocol Version' },
+            { key: 'cid', label: 'Client ID' }
+          ]
+        },
+        'event': {
+          title: 'Event Details',
+          fields: [
+            { key: 'ea', label: 'Event Action' },
+            { key: 'ec', label: 'Event Category' },
+            { key: 'el', label: 'Event Label' },
+            { key: 'ev', label: 'Event Value' }
+          ]
+        },
+        'page': {
+          title: 'Page Data',
+          fields: [
+            { key: 'dl', label: 'Document Location' },
+            { key: 'dp', label: 'Document Path' },
+            { key: 'dt', label: 'Document Title' },
+            { key: 'dh', label: 'Document Host' }
+          ]
+        }
+      }
+    }
+  }
+};
 
 // In-memory tracking data store to ensure consistency between popup and content script
 const trackingDataStore = {
   // Tabs data indexed by tabId
   tabs: {},
   
+  // Flag to track if data has been loaded from storage
+  dataLoaded: false,
+  
   // Add a new tracking request
   addRequest(tabId, request) {
+    // Make sure we've loaded data from storage first
+    if (!this.dataLoaded) {
+      this.loadFromStorage();
+    }
+    
     if (!this.tabs[tabId]) {
       this.tabs[tabId] = [];
     }
     
-    // Add the request to the array
-    this.tabs[tabId].unshift(request);
+    // Check if this request already exists (based on requestId)
+    const existingIndex = this.tabs[tabId].findIndex(r => r.requestId === request.requestId);
+    
+    if (existingIndex >= 0) {
+      // Update existing request
+      this.tabs[tabId][existingIndex] = request;
+    } else {
+      // Add the request to the array (at the beginning for chronological order)
+      this.tabs[tabId].unshift(request);
+    }
     
     // Also update the storage for persistence
     this.saveToStorage();
@@ -22,11 +319,21 @@ const trackingDataStore = {
   
   // Get all requests for a tab
   getTabRequests(tabId) {
-    // First check if we have data in memory
-    if (!this.tabs[tabId] || this.tabs[tabId].length === 0) {
-      // If not, try to load from storage directly in a synchronous way
-      // We'll return the cached data but initiate a refresh for next time
+    // First make sure we've loaded data from storage
+    if (!this.dataLoaded) {
       this.loadFromStorage();
+    }
+    
+    // If still no data, return empty array
+    if (!this.tabs[tabId] || this.tabs[tabId].length === 0) {
+      this.tabs[tabId] = [];
+      
+      // Try to load data directly from storage as a fallback
+      chrome.storage.local.get(['trackedRequests'], (result) => {
+        if (result.trackedRequests && result.trackedRequests[tabId]) {
+          this.tabs[tabId] = result.trackedRequests[tabId];
+        }
+      });
     }
     return this.tabs[tabId] || [];
   },
@@ -35,26 +342,28 @@ const trackingDataStore = {
   getCurrentPageRequests(tabId, hostname) {
     // Ensure we have the latest data
     return new Promise((resolve) => {
-      // Try to get data synchronously first
-      const requests = this.getTabRequests(tabId);
-      
-      // If no requests, return empty array
-      if (requests.length === 0) {
-        // Try to load data from storage directly for this specific tab
-        chrome.storage.local.get(['trackedRequests'], (result) => {
-          if (result.trackedRequests && result.trackedRequests[tabId]) {
-            this.tabs[tabId] = result.trackedRequests[tabId];
-            const reloadedRequests = this.tabs[tabId];
-            const pageLoadTime = this.findPageOpenTime(reloadedRequests, hostname) || (Date.now() - 60000);
-            resolve(reloadedRequests.filter(req => req.timestamp >= pageLoadTime));
-          } else {
-            resolve([]);
-          }
-        });
-      } else {
+      // Force a fresh load from storage to ensure we have the latest data
+      chrome.storage.local.get(['trackedRequests'], (result) => {
+        if (result.trackedRequests) {
+          this.tabs = result.trackedRequests;
+          this.dataLoaded = true;
+        }
+        
+        // Try to get data for this tab
+        const requests = this.tabs[tabId] || [];
+        
+        if (requests.length === 0) {
+          resolve([]);
+          return;
+        }
+        
+        // Get the appropriate page load time
         const pageLoadTime = this.findPageOpenTime(requests, hostname) || (Date.now() - 60000);
-        resolve(requests.filter(req => req.timestamp >= pageLoadTime));
-      }
+        
+        // Filter requests by page load time
+        const filteredRequests = requests.filter(req => req.timestamp >= pageLoadTime);
+        resolve(filteredRequests);
+      });
     });
   },
   
@@ -110,8 +419,7 @@ const trackingDataStore = {
     if (!this.tabs[tabId]) return false;
     
     // Completely reset the tab data for this hostname to ensure clean start
-    // This is more thorough than filtering out requests from the hostname
-    this.tabs[tabId] = [];
+    this.tabs[tabId] = this.tabs[tabId].filter(req => req.host !== hostname);
     
     // Save changes
     this.saveToStorage();
@@ -130,6 +438,10 @@ const trackingDataStore = {
     chrome.storage.local.get(['trackedRequests'], (result) => {
       if (result.trackedRequests) {
         this.tabs = result.trackedRequests;
+        this.dataLoaded = true;
+      } else {
+        this.tabs = {};
+        this.dataLoaded = true;
       }
     });
   },
@@ -199,6 +511,37 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     } catch (e) {
       // Invalid URL or other error, ignore
     }
+  } 
+  
+  // When content is fully loaded, check if we need to wake up the content script
+  if (changeInfo.status === 'complete' && tab.url && 
+      (tab.url.startsWith('http://') || tab.url.startsWith('https://'))) {
+    
+    // Check if Live View is enabled globally
+    chrome.storage.local.get(['pixelTracerSettings'], (result) => {
+      const settings = result.pixelTracerSettings || {};
+      
+      // If Live View is enabled, make sure content script is aware
+      if (settings.liveViewEnabled) {
+        // First make sure we have the latest data loaded
+        trackingDataStore.loadFromStorage();
+        
+        // Send a wake-up message to the content script
+        setTimeout(() => {
+          // Force a complete refresh of Live View data
+          chrome.tabs.sendMessage(tabId, {
+            action: 'forceRefreshLiveView'
+          }).catch(() => {
+            // If we can't send the message directly, try sending a regular refresh
+            chrome.tabs.sendMessage(tabId, {
+              action: 'refreshTracking'
+            }).catch(() => {
+              // Ignore errors - content script may just not be ready
+            });
+          });
+        }, 1000); // Wait 1 second to ensure content script is fully loaded
+      }
+    });
   }
 });
 
@@ -432,13 +775,10 @@ function analyzeRequest(details) {
     let eventType = 'Unknown';
     let accountId = '';
     
-    // Check various query parameters based on provider patterns
-    if (params.t) eventType = params.t; // Google Analytics
-    if (params.en) eventType = params.en; // Facebook
-    if (params.ev) eventType = params.ev; // Generic event
-    if (params.tid) accountId = params.tid; // GA4 tracking ID
-    if (params.id) accountId = params.id; // Facebook pixel ID
-
+    // Check if we have a custom provider with custom parsing functions
+    const firstProvider = matchedProviders[0];
+    const provider = trackingProviders[firstProvider];
+    
     // Extract the payload/post data if available
     let payload = null;
     if (details.requestBody) {
@@ -459,6 +799,37 @@ function analyzeRequest(details) {
         // For form data
         payload = details.requestBody.formData;
       }
+    }
+    
+    // Create a params object with a get method to mimic URLSearchParams behavior
+    // for our custom provider functions
+    const paramsObj = {
+      get: (key) => params[key]
+    };
+    
+    // Use custom parsing functions if available
+    if (provider && provider.schema) {
+      if (provider.schema.parseEventType) {
+        eventType = provider.schema.parseEventType(paramsObj, payload || parsedUrl);
+      }
+      
+      if (provider.schema.parseAccount) {
+        accountId = provider.schema.parseAccount(paramsObj, payload || parsedUrl);
+      }
+    }
+    
+    // Fallback to general extraction method for standard patterns
+    if (eventType === 'Unknown') {
+      // Check various query parameters based on provider patterns
+      if (params.t) eventType = params.t; // Google Analytics
+      if (params.en) eventType = params.en; // Facebook
+      if (params.ev) eventType = params.ev; // Generic event
+    }
+    
+    if (!accountId) {
+      // Try to extract from common parameters
+      if (params.tid) accountId = params.tid; // GA4 tracking ID
+      if (params.id) accountId = params.id; // Facebook pixel ID
     }
     
     // Get request headers from cache
@@ -544,6 +915,26 @@ function storeTrackingData(tabId, url, providers, details = {}) {
   const host = parsedUrl.hostname;
   const path = parsedUrl.pathname;
   
+  // Get the first provider for enhanced data processing
+  const firstProvider = providers.length > 0 ? providers[0] : null;
+  const provider = firstProvider ? trackingProviders[firstProvider] : null;
+  
+  // Process any custom data for specific providers
+  let customData = {};
+  
+  // Handle Facebook Pixel contents data
+  if (firstProvider === 'facebook-pixel' && provider && provider.schema.parseContents) {
+    const paramsObj = {
+      get: (key) => details.params[key]
+    };
+    
+    // Add contents data if available
+    const contentsData = provider.schema.parseContents(paramsObj);
+    if (contentsData && contentsData.length > 0) {
+      customData.contents = contentsData;
+    }
+  }
+  
   // Create the tracking request object
   const trackingRequest = {
     timestamp: Date.now(),
@@ -561,12 +952,17 @@ function storeTrackingData(tabId, url, providers, details = {}) {
     responseHeaders: [],
     statusCode: 0,
     tabId,
-    // Add category based on first provider
-    category: providers.length > 0 ? (trackingProviders[providers[0]]?.category || 'analytics') : 'analytics'
+    // Add category based on provider
+    category: provider ? provider.category : 'analytics',
+    // Add any custom data that was processed
+    customData: Object.keys(customData).length > 0 ? customData : null
   };
   
   // Add to our central tracking data store
   trackingDataStore.addRequest(tabId, trackingRequest);
+  
+  // Ensure the data is immediately saved to storage to prevent loss
+  trackingDataStore.saveToStorage();
   
   // Notify the content script for Live View
   notifyContentScriptOfRequest(tabId, trackingRequest);
@@ -581,14 +977,56 @@ function notifyContentScriptOfRequest(tabId, request) {
   // Add tabId to the request object to help content script validate
   request.tabId = tabId;
   
-  // Send message to content script in the tab
-  chrome.tabs.sendMessage(tabId, {
-    action: 'trackingRequestDetected',
-    request: request
-  }, (response) => {
-    // Don't need to handle response, but check for error
+  // Make sure the tab exists and is a valid tab before sending
+  chrome.tabs.get(tabId, (tab) => {
+    // If the tab doesn't exist or there's an error, we can't send the message
     if (chrome.runtime.lastError) {
-      // Content script may not be active, that's ok
+      return;
+    }
+    
+    // Only send to http/https pages
+    if (!tab.url || (!tab.url.startsWith('http://') && !tab.url.startsWith('https://'))) {
+      return;
+    }
+    
+    // Send message to content script in the tab with proper error handling
+    try {
+      chrome.tabs.sendMessage(tabId, {
+        action: 'trackingRequestDetected',
+        request: request
+      }, (response) => {
+        // Don't need to handle response, but check for error
+        if (chrome.runtime.lastError) {
+          // Content script may not be loaded yet, which is fine
+          // We'll store the data anyway and it will be available when the live view loads
+          
+          // Set a flag to track if we should retry
+          let shouldRetry = true;
+          
+          // Try to check if Live View is generally enabled
+          chrome.storage.local.get(['pixelTracerSettings'], (result) => {
+            const settings = result.pixelTracerSettings || {};
+            
+            // Only retry if Live View is globally enabled
+            if (settings.liveViewEnabled && shouldRetry) {
+              // Retry once after a short delay - content script might be loading
+              setTimeout(() => {
+                chrome.tabs.sendMessage(tabId, {
+                  action: 'trackingRequestDetected',
+                  request: request
+                }).catch(() => {
+                  // Ignore errors on retry
+                });
+              }, 1000);
+              
+              // Prevent multiple retries
+              shouldRetry = false;
+            }
+          });
+        }
+      });
+    } catch (e) {
+      // Ignore errors, data is stored already
     }
   });
 }

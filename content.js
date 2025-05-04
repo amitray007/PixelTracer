@@ -65,12 +65,26 @@ function init() {
           // Load existing tracking data once we have the tab ID
           if (currentTabId) {
             loadTrackingData();
+            
+            // Add a periodic refresh for Live View to ensure we don't miss any updates
+            setInterval(() => {
+              if (liveViewEnabled && document.visibilityState === 'visible') {
+                loadTrackingData();
+              }
+            }, 5000); // Refresh every 5 seconds while visible
           } else {
             // Wait for tab ID to be available
             const checkTabId = setInterval(() => {
               if (currentTabId) {
                 loadTrackingData();
                 clearInterval(checkTabId);
+                
+                // Set up the periodic refresh after we get the tab ID
+                setInterval(() => {
+                  if (liveViewEnabled && document.visibilityState === 'visible') {
+                    loadTrackingData();
+                  }
+                }, 5000);
               }
             }, 100);
           }
@@ -89,7 +103,6 @@ function init() {
     
     // Clear existing data if URL has changed
     if (newUrl !== currentUrl) {
-      
       // Reset tracking data
       currentTabRequests = [];
       
@@ -116,6 +129,13 @@ function init() {
       setTimeout(() => loadTrackingData(), 500);
     }
   });
+  
+  // Also listen for visibility changes to refresh data when tab becomes visible
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && liveViewEnabled) {
+      loadTrackingData();
+    }
+  });
 }
 
 /**
@@ -124,12 +144,17 @@ function init() {
 function getCurrentTabInfo() {
   try {
     chrome.runtime.sendMessage({ action: 'getCurrentTabInfo' }, (response) => {
+      if (chrome.runtime.lastError) {
+        return;
+      }
+      
       if (response && response.tabId) {
         currentTabId = response.tabId;
         currentUrl = response.url || window.location.href;
       }
     });
   } catch (e) {
+    // Ignore errors
   }
 }
 
@@ -139,7 +164,11 @@ function getCurrentTabInfo() {
 function loadTrackingData() {
   if (!currentTabId) {
     getCurrentTabInfo();
-    return;
+    // If we still don't have a tab ID, retry after a short delay
+    if (!currentTabId) {
+      setTimeout(() => loadTrackingData(), 200);
+      return;
+    }
   }
   
   const hostname = new URL(currentUrl || window.location.href).hostname;
@@ -170,12 +199,14 @@ function loadTrackingData() {
     // Check for Chrome runtime errors
     if (chrome.runtime.lastError) {
       showLoadingError();
+      // Retry once after a short delay
+      setTimeout(() => retryLoadTrackingData(hostname), 500);
       return;
     }
     
     if (response && response.success && response.requests) {
       // Update our local state
-      currentTabRequests = response.requests;
+      currentTabRequests = response.requests || [];
       
       // Make sure we have the requests container reference
       if (liveViewEnabled && liveViewEl && !requestsContainer) {
@@ -184,12 +215,64 @@ function loadTrackingData() {
       
       // Only update UI if Live View is visible
       if (liveViewEnabled && liveViewEl) {
+        // Update filter options based on new data
+        refreshFilters();
+        
         updateStats();
         refreshRequestList();
+        
+        // If we have requests but the UI shows nothing, try forcing a re-render
+        if (currentTabRequests.length > 0 && (!requestsList || requestsList.length === 0)) {
+          setTimeout(() => {
+            refreshRequestList();
+          }, 200);
+        }
       }
     } else {
       // Try once more after a short delay (may be a timing issue)
       setTimeout(() => retryLoadTrackingData(hostname), 500);
+    }
+  });
+}
+
+/**
+ * Retry loading tracking data once
+ */
+function retryLoadTrackingData(hostname) {
+  // Make sure requestsContainer is initialized if needed
+  if (liveViewEnabled && liveViewEl && !requestsContainer) {
+    requestsContainer = document.getElementById('pixeltracer-requests-container');
+  }
+  
+  chrome.runtime.sendMessage({
+    action: 'getTrackingData',
+    tabId: currentTabId,
+    hostname: hostname
+  }, (response) => {
+    if (chrome.runtime.lastError) {
+      showLoadingError();
+      return;
+    }
+    
+    if (response && response.success) {
+      // Update our local state
+      currentTabRequests = response.requests || [];
+      
+      // Make sure we have the requests container reference
+      if (liveViewEnabled && liveViewEl && !requestsContainer) {
+        requestsContainer = document.getElementById('pixeltracer-requests-container');
+      }
+      
+      // Only update UI if Live View is visible
+      if (liveViewEnabled && liveViewEl) {
+        // Update filter options based on new data
+        refreshFilters();
+        
+        updateStats();
+        refreshRequestList();
+      }
+    } else {
+      showLoadingError();
     }
   });
 }
@@ -208,46 +291,12 @@ function showLoadingError() {
 }
 
 /**
- * Retry loading tracking data once
- */
-function retryLoadTrackingData(hostname) {
-  
-  // Make sure requestsContainer is initialized if needed
-  if (liveViewEnabled && liveViewEl && !requestsContainer) {
-    requestsContainer = document.getElementById('pixeltracer-requests-container');
-  }
-  
-  chrome.runtime.sendMessage({
-    action: 'getTrackingData',
-    tabId: currentTabId,
-    hostname: hostname
-  }, (response) => {
-    if (chrome.runtime.lastError || !response || !response.success) {
-      showLoadingError();
-      return;
-    }
-    
-    // Update our local state
-    currentTabRequests = response.requests || [];
-    
-    // Make sure we have the requests container reference
-    if (liveViewEnabled && liveViewEl && !requestsContainer) {
-      requestsContainer = document.getElementById('pixeltracer-requests-container');
-    }
-    
-    // Only update UI if Live View is visible
-    if (liveViewEnabled && liveViewEl) {
-      updateStats();
-      refreshRequestList();
-    }
-  });
-}
-
-/**
  * Refresh the request list in the UI
  */
 function refreshRequestList() {
-  if (!liveViewEl || !requestsContainer) return;
+  if (!liveViewEl || !requestsContainer) {
+    return;
+  }
   
   // Get filter values from the UI elements
   const filterTypeElement = document.getElementById('pixeltracer-filter-type');
@@ -316,13 +365,24 @@ function refreshRequestList() {
 function displayChronologicalRequests(requests) {
   // Clear existing requests first
   requestsContainer.innerHTML = '';
+  requestsList = [];
+  
+  // Make sure we have actual requests to display
+  if (!requests || !Array.isArray(requests) || requests.length === 0) {
+    return;
+  }
   
   // Sort by timestamp descending (newest first)
   const sortedRequests = [...requests].sort((a, b) => b.timestamp - a.timestamp);
   
   // Add requests to the UI (limited to prevent performance issues)
-  sortedRequests.slice(0, MAX_DISPLAYED_REQUESTS).forEach(request => {
-    addRequestItemToUI(request);
+  const requestsToDisplay = sortedRequests.slice(0, MAX_DISPLAYED_REQUESTS);
+  
+  // Make sure each request has the minimum required fields
+  requestsToDisplay.forEach(request => {
+    if (request && request.providers && request.providers.length > 0) {
+      addRequestItemToUI(request);
+    }
   });
 }
 
@@ -405,6 +465,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.action === 'enableLiveView') {
     createLiveView();
     liveViewEnabled = true;
+    // Force data reload when enabling Live View
     loadTrackingData();
     saveLiveViewState('open');
     sendResponse({ success: true });
@@ -419,11 +480,41 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     updateLiveViewTheme();
     sendResponse({ success: true });
   } else if (message.action === 'refreshTracking') {
+    // Immediately refresh the tracking data
     loadTrackingData();
     sendResponse({ success: true });
-  } else if (message.action === 'trackingRequestDetected' && liveViewEnabled) {
-    // New tracking request detected
-    processNewTrackingRequest(message.request);
+  } else if (message.action === 'trackingRequestDetected') {
+    // Make sure we have a valid request object
+    if (!message.request) {
+      sendResponse({ success: false, error: 'No request data' });
+      return true;
+    }
+    
+    // Ensure we have a valid tab ID
+    if (!currentTabId) {
+      getCurrentTabInfo();
+      // If we still don't have a tab ID after trying, store the request temporarily
+      if (!currentTabId) {
+        // Try once more after getting tab info
+        setTimeout(() => {
+          if (currentTabId && liveViewEnabled) {
+            processNewTrackingRequest(message.request);
+          }
+        }, 200);
+        sendResponse({ success: true });
+        return true;
+      }
+    }
+    
+    // If Live View is enabled, process the request
+    if (liveViewEnabled) {
+      processNewTrackingRequest(message.request);
+    } else {
+      // Even if Live View is not enabled, store the request so it's available
+      // if Live View gets enabled later
+      addNewRequestToLocalStore(message.request);
+    }
+    
     sendResponse({ success: true });
   } else if (message.action === 'trackingDataCleared') {
     // Tracking data was cleared by the popup
@@ -448,6 +539,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     }
     
     sendResponse({ success: true });
+  } else if (message.action === 'forceRefreshLiveView') {
+    // Force a complete refresh of the Live View
+    if (liveViewEnabled) {
+      // Force reload data
+      loadTrackingData();
+    }
+    sendResponse({ success: true });
   }
   
   return true; // Required for async response
@@ -458,14 +556,42 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
  * @param {Object} request - The tracking request object
  */
 function processNewTrackingRequest(request) {
+  // Skip if no request data
+  if (!request) {
+    return;
+  }
+  
   // Check if this is for our tab and is new
-  if (!request || !currentTabId || request.tabId !== currentTabId) return;
+  if (!currentTabId) {
+    getCurrentTabInfo();
+    // If we still don't have tab ID, store request and process later when we get tab ID
+    if (!currentTabId) {
+      return;
+    }
+  }
+  
+  if (request.tabId !== currentTabId) {
+    return;
+  }
   
   // Add to our local array
   addNewRequestToLocalStore(request);
   
   // Update the UI stats
   updateStats();
+  
+  // Check if this request introduces a new category that might need a filter option
+  const filterTypeSelect = document.getElementById('pixeltracer-filter-type');
+  if (filterTypeSelect && request.category) {
+    // Check if we need to add a new filter option
+    const needToAddFilter = !Array.from(filterTypeSelect.options).some(
+      option => option.value === request.category
+    );
+    
+    if (needToAddFilter) {
+      refreshFilters();
+    }
+  }
   
   // Add to UI only if Live View is visible and not minimized
   if (liveViewEnabled && liveViewEl && !isLiveViewMinimized) {
@@ -486,6 +612,11 @@ function processNewTrackingRequest(request) {
  * @param {Object} request - The tracking request object
  */
 function addNewRequestToLocalStore(request) {
+  // Ensure request has required fields
+  if (!request.requestId || !request.url) {
+    return;
+  }
+  
   // Check if we already have this request (based on requestId)
   const existingIndex = currentTabRequests.findIndex(r => r.requestId === request.requestId);
   
@@ -910,6 +1041,24 @@ function fillEventTab(providerId, request) {
       });
     }
     
+    // Handle custom data if available (e.g., Facebook Pixel contents)
+    if (request.customData && request.customData.contents) {
+      html += `
+        <div class="pixeltracer-details-group-title">
+          <i class="fas fa-shopping-cart"></i> Product Information
+        </div>
+      `;
+      
+      request.customData.contents.forEach(item => {
+        html += `
+          <div class="pixeltracer-details-item">
+            <div class="pixeltracer-details-key">${item.field}</div>
+            <div class="pixeltracer-details-value">${item.value}</div>
+          </div>
+        `;
+      });
+    }
+    
     html += '</div>';
     
     content.innerHTML = html;
@@ -1129,6 +1278,10 @@ function getEventTypeDescription(eventType) {
  * @returns {HTMLElement} - The created element
  */
 function createRequestElement(request) {
+  if (!request || !request.providers || !request.providers.length) {
+    return document.createElement('div'); // Return empty element for invalid requests
+  }
+
   // Create request element
   const requestEl = document.createElement('div');
   requestEl.className = `pixeltracer-request-item pixeltracer-category-${request.category || 'analytics'}`;
@@ -1196,6 +1349,11 @@ function addRequestItemToUI(request) {
     return;
   }
   
+  // Verify the request has necessary data
+  if (!request || !request.providers || !request.providers[0]) {
+    return;
+  }
+  
   // Create the request element
   const requestEl = createRequestElement(request);
   
@@ -1203,6 +1361,25 @@ function addRequestItemToUI(request) {
   if (filterPreferences.viewMode === 'grouped') {
     // Rather than trying to update a single item in grouped view, refresh the entire list
     refreshRequestList();
+    return;
+  }
+  
+  // Check if request already exists to prevent duplicates
+  const existingElements = Array.from(requestsContainer.querySelectorAll('.pixeltracer-request-item'));
+  const requestExists = existingElements.some(el => {
+    const timeEl = el.querySelector('.pixeltracer-event-time');
+    const titleEl = el.querySelector('.pixeltracer-request-title');
+    
+    if (!timeEl || !titleEl) return false;
+    
+    // Match based on timestamp and title content (imperfect but works in most cases)
+    const time = new Date(request.timestamp).toLocaleTimeString();
+    return timeEl.textContent === time && 
+           titleEl.textContent.includes(formatProviderName(request.providers[0]));
+  });
+  
+  // Skip if this is a duplicate
+  if (requestExists) {
     return;
   }
   
@@ -1483,6 +1660,58 @@ function saveFilterPreferences() {
   chrome.storage.local.set({ pixelTracerFilterPreferences: filterPreferences });
 }
 
+/**
+ * Refreshes the filter options based on detected tracking data
+ */
+function refreshFilters() {
+  const filterTypeSelect = document.getElementById('pixeltracer-filter-type');
+  if (!filterTypeSelect) return;
+  
+  // Keep the currently selected option
+  const currentValue = filterTypeSelect.value || 'all';
+  
+  // Clear existing options (except "All Requests")
+  while (filterTypeSelect.options.length > 1) {
+    filterTypeSelect.remove(1);
+  }
+  
+  // Get unique categories from current tab requests
+  const categories = new Set();
+  currentTabRequests.forEach(request => {
+    if (request.category) {
+      categories.add(request.category);
+    }
+  });
+  
+  // Add provider-based options
+  const uniqueProviders = new Set();
+  currentTabRequests.forEach(request => {
+    request.providers.forEach(provider => uniqueProviders.add(provider));
+  });
+  
+  // Add category filters
+  Array.from(categories).sort().forEach(category => {
+    const option = document.createElement('option');
+    option.value = category;
+    
+    // Format category name (e.g., 'analytics' -> 'Analytics')
+    const displayName = category.charAt(0).toUpperCase() + category.slice(1);
+    option.textContent = displayName;
+    
+    filterTypeSelect.appendChild(option);
+  });
+  
+  // Special provider-based filters can be added here if needed
+  
+  // Restore previously selected value if it still exists
+  for (let i = 0; i < filterTypeSelect.options.length; i++) {
+    if (filterTypeSelect.options[i].value === currentValue) {
+      filterTypeSelect.selectedIndex = i;
+      break;
+    }
+  }
+}
+
 // Function to create and show the Live View floating window
 function createLiveView() {
   // If it already exists, just show it
@@ -1531,10 +1760,7 @@ function createLiveView() {
           <label for="pixeltracer-filter-type">Filter:</label>
           <select id="pixeltracer-filter-type">
             <option value="all">All Requests</option>
-            <option value="analytics">Analytics</option>
-            <option value="ads">Ads</option>
-            <option value="remarketing">Remarketing</option>
-            <option value="social">Social</option>
+            <!-- Additional options will be populated dynamically -->
           </select>
         </div>
         <div class="pixeltracer-filter-group">
@@ -1600,8 +1826,15 @@ function createLiveView() {
   const viewModeSelect = liveViewEl.querySelector('#pixeltracer-view-mode');
   
   // Set initial values from saved preferences
-  filterTypeSelect.value = filterPreferences.filterType;
   viewModeSelect.value = filterPreferences.viewMode;
+  
+  // Populate filter options based on existing data
+  refreshFilters();
+  
+  // Set filter value after options are populated
+  if (filterTypeSelect) {
+    filterTypeSelect.value = filterPreferences.filterType;
+  }
   
   filterTypeSelect.addEventListener('change', (e) => {
     filterPreferences.filterType = e.target.value;
