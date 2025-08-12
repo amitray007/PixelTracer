@@ -69,7 +69,7 @@ PixelTracer detects a wide range of tracking technologies:
 
 1. Clone or download this repository
    ```
-   git clone https://github.com/your-username/pixeltracer.git
+   git clone https://github.com/amitray007/pixeltracer.git
    ```
 2. Open Chrome and navigate to `chrome://extensions`
 3. Enable "Developer mode" in the top-right corner

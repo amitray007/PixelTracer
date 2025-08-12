@@ -1,0 +1,21 @@
+{
+  "name": "@pixeltracer/providers",
+  "version": "2.0.0",
+  "description": "Provider plugins for tracking services (Facebook, Google, TikTok, etc.)",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@pixeltracer/shared": "workspace:*"
+  },
+  "devDependencies": {}
+}

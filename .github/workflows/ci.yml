@@ -1,0 +1,97 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE'
+      - '.gitignore'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    # Skip workflow if commit message contains [skip ci] or [skip-ci]
+    if: "!contains(github.event.head_commit.message, 'skip ci') && !contains(github.event.head_commit.message, 'skip-ci') && !contains(github.event.head_commit.message, 'ci skip')"
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Get pnpm store directory
+        shell: bash
+        run: |
+          echo "STORE_PATH=$(pnpm store path --silent)" >> $GITHUB_ENV
+
+      - name: Setup pnpm cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.STORE_PATH }}
+          key: ${{ runner.os }}-pnpm-store-${{ hashFiles('**/pnpm-lock.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-pnpm-store-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build packages in dependency order (required for type checking)
+        run: |
+          # Build in correct dependency order
+          pnpm --filter @pixeltracer/shared run build
+          pnpm --filter @pixeltracer/core run build
+          pnpm --filter @pixeltracer/providers run build
+          pnpm --filter @pixeltracer/ui run build
+
+      - name: Type check
+        run: pnpm -w run type-check
+
+      - name: Run tests
+        run: pnpm test
+        continue-on-error: true
+
+      - name: Build all packages
+        run: pnpm -w run build
+
+      - name: Build Chrome Extension
+        run: |
+          cd apps/chrome-extension
+          pnpm build
+
+          # Verify manifest.json exists
+          if [ ! -f "dist/manifest.json" ]; then
+            echo "Error: manifest.json not found in dist/"
+            exit 1
+          fi
+
+          # Verify required files exist
+          for file in background.js sidepanel.js popup.js; do
+            if [ ! -f "dist/$file" ]; then
+              echo "Error: $file not found in dist/"
+              exit 1
+            fi
+          done
+
+          echo "✅ Chrome Extension build successful!"
+
+      - name: Upload build artifacts
+        if: matrix.node-version == '20.x'
+        uses: actions/upload-artifact@v4
+        with:
+          name: chrome-extension-dev-build
+          path: apps/chrome-extension/dist/
+          retention-days: 7

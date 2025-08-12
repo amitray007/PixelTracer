@@ -1,0 +1,210 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* Base shadcn/ui colors */
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222.2 84% 4.9%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96%;
+    --accent-foreground: 222.2 84% 4.9%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
+
+    /* PixelTracer brand colors */
+    --pixel-primary: 221.2 83.2% 53.3%; /* Blue - primary brand */
+    --pixel-secondary: 262.1 83.3% 57.8%; /* Purple - secondary accent */
+    --pixel-success: 142.1 76.2% 36.3%; /* Green - success states */
+    --pixel-warning: 45.4 93.4% 47.5%; /* Orange - warnings */
+    --pixel-error: 0 84.2% 60.2%; /* Red - errors */
+    --pixel-info: 204.4 83.3% 57.8%; /* Cyan - info */
+
+    /* Provider colors for visual identification */
+    --provider-google: 210 100% 56%; /* Google Blue */
+    --provider-facebook: 221 44% 41%; /* Facebook Blue */
+    --provider-tiktok: 348 83% 47%; /* TikTok Pink */
+    --provider-linkedin: 201 100% 35%; /* LinkedIn Blue */
+    --provider-twitter: 203 89% 53%; /* Twitter Blue */
+
+    /* Confidence level colors */
+    --confidence-low: 0 84% 60%; /* Red - low confidence */
+    --confidence-medium: 45 93% 47%; /* Orange - medium confidence */
+    --confidence-high: 142 76% 36%; /* Green - high confidence */
+    --confidence-perfect: 142 90% 25%; /* Dark Green - perfect confidence */
+  }
+
+  .dark {
+    /* Dark mode colors - lighter, more comfortable dark theme */
+    --background: 220 13% 18%;  /* Lighter dark background #27292E */
+    --foreground: 210 20% 98%;
+    --card: 220 13% 20%;  /* Slightly lighter than background #2B2E35 */
+    --card-foreground: 210 20% 98%;
+    --popover: 220 13% 20%;
+    --popover-foreground: 210 20% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47% 11.2%;
+    --secondary: 220 13% 25%;  /* Lighter secondary #363A43 */
+    --secondary-foreground: 210 20% 98%;
+    --muted: 220 13% 25%;  /* Same as secondary for consistency */
+    --muted-foreground: 215 20% 65%;
+    --accent: 220 13% 25%;
+    --accent-foreground: 210 20% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 20% 98%;
+    --border: 220 13% 28%;  /* Lighter borders #3E424B */
+    --input: 220 13% 25%;
+    --ring: 224.3 76.3% 48%;
+
+    /* PixelTracer dark mode colors */
+    --pixel-primary: 217.2 91.2% 59.8%;
+    --pixel-secondary: 266.1 85.3% 67.8%;
+    --pixel-success: 142.1 70.6% 45.3%;
+    --pixel-warning: 45.4 93.4% 47.5%;
+    --pixel-error: 0 72.2% 50.6%;
+    --pixel-info: 199.4 89.3% 67.8%;
+
+    /* Provider colors adjusted for dark mode */
+    --provider-google: 210 100% 66%;
+    --provider-facebook: 221 54% 51%;
+    --provider-tiktok: 348 83% 57%;
+    --provider-linkedin: 201 100% 45%;
+    --provider-twitter: 203 89% 63%;
+
+    /* Confidence colors adjusted for dark mode */
+    --confidence-low: 0 84% 70%;
+    --confidence-medium: 45 93% 57%;
+    --confidence-high: 142 76% 46%;
+    --confidence-perfect: 142 90% 35%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  /* Sidepanel specific styling */
+  .sidepanel-container {
+    @apply w-full max-w-sidepanel mx-auto;
+  }
+
+  /* Custom scrollbar for better UX */
+  .custom-scrollbar::-webkit-scrollbar {
+    @apply w-2;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-track {
+    @apply bg-muted rounded-lg;
+  }
+
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    @apply bg-muted-foreground/30 rounded-lg hover:bg-muted-foreground/50;
+  }
+
+  /* Confidence indicators */
+  .confidence-indicator {
+    @apply inline-flex items-center px-2 py-1 rounded-md text-xs font-medium;
+  }
+
+  .confidence-low {
+    @apply bg-confidence-low/10 text-confidence-low border border-confidence-low/20;
+  }
+
+  .confidence-medium {
+    @apply bg-confidence-medium/10 text-confidence-medium border border-confidence-medium/20;
+  }
+
+  .confidence-high {
+    @apply bg-confidence-high/10 text-confidence-high border border-confidence-high/20;
+  }
+
+  .confidence-perfect {
+    @apply bg-confidence-perfect/10 text-confidence-perfect border border-confidence-perfect/20;
+  }
+
+  /* Provider badges */
+  .provider-badge {
+    @apply inline-flex items-center px-2 py-1 rounded-md text-xs font-medium;
+  }
+
+  .provider-google {
+    @apply bg-provider-google/10 text-provider-google border border-provider-google/20;
+  }
+
+  .provider-facebook {
+    @apply bg-provider-facebook/10 text-provider-facebook border border-provider-facebook/20;
+  }
+
+  .provider-tiktok {
+    @apply bg-provider-tiktok/10 text-provider-tiktok border border-provider-tiktok/20;
+  }
+
+  .provider-linkedin {
+    @apply bg-provider-linkedin/10 text-provider-linkedin border border-provider-linkedin/20;
+  }
+
+  .provider-twitter {
+    @apply bg-provider-twitter/10 text-provider-twitter border border-provider-twitter/20;
+  }
+
+  /* Event status indicators */
+  .event-new {
+    @apply animate-pulse-glow;
+  }
+
+  .event-processed {
+    @apply opacity-75;
+  }
+
+  /* Live indicator pulse animation */
+  .live-indicator-pulse {
+    animation: live-pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes live-pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.7; transform: scale(1.1); }
+  }
+
+  /* Focus styles for accessibility */
+  .focus-ring {
+    @apply focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background;
+  }
+
+  /* High contrast mode support */
+  @media (prefers-contrast: high) {
+    .confidence-indicator,
+    .provider-badge {
+      @apply border-2;
+    }
+  }
+
+  /* Reduced motion support */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-pulse-glow,
+    .animate-fade-in,
+    .animate-slide-in-right {
+      @apply animate-none;
+    }
+  }
+}

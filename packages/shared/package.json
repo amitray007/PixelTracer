@@ -1,0 +1,19 @@
+{
+  "name": "@pixeltracer/shared",
+  "version": "2.0.0",
+  "description": "Shared types, utilities, and constants for PixelTracer",
+  "type": "module",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {},
+  "devDependencies": {}
+}

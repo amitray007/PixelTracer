@@ -8,20 +8,32 @@ desktop.ini
 .vscode/
 *.sublime-project
 *.sublime-workspace
+.claude/
 
 # Build artifacts
 build/
 dist/
 *.zip
+*.tsbuildinfo
+
+# Listing files
+.listings/
+
+# Source maps
+*.map
+*.map.js
 
 # Logs
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+pnpm-debug.log*
+.pnpm-debug.log
 
 # Dependencies
 node_modules/
+.pnpm-store/
 
 # Environment variables
 .env
@@ -29,7 +41,29 @@ node_modules/
 .env.development.local
 .env.test.local
 .env.production.local
+.env*.local
 
-# Package files
+# Package manager files (keeping pnpm-lock.yaml tracked)
 package-lock.json
-yarn.lock 
+yarn.lock
+
+# Testing
+coverage/
+.nyc_output/
+*.lcov
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+.cache/
+.turbo/
+
+# OS generated files
+ehthumbs.db
+Icon?
+.Spotlight-V100
+.Trashes 
