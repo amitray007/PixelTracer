@@ -22,6 +22,7 @@ export interface TrackingEvent {
   requestBody?: string;
   statusCode?: number;
   rawData?: Record<string, any>;
+  isNavigationEvent?: boolean; // Special flag for navigation separator events
 }
 
 // Provider system interfaces

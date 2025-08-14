@@ -6,7 +6,9 @@
 import * as React from "react"
 import { TrackingEvent } from "@pixeltracer/shared"
 import { ProviderIcon } from "./provider-icon"
+import { Tooltip } from "./ui/tooltip"
 import { cn } from "../utils"
+import { Navigation, ArrowRight } from "lucide-react"
 
 export interface EventTableProps extends React.HTMLAttributes<HTMLDivElement> {
   events: TrackingEvent[]
@@ -80,7 +82,8 @@ const EventTable = React.forwardRef<HTMLDivElement, EventTableProps>(
             eventName: event.eventType || 'pageview',
             accountId: accountId || 'N/A',
             isSelected,
-            fullEvent: event
+            fullEvent: event,
+            isNavigationEvent: event.isNavigationEvent
           };
         });
     }, [events, selectedEvent?.id, extractAccountId]);
@@ -130,34 +133,64 @@ const EventTable = React.forwardRef<HTMLDivElement, EventTableProps>(
               </tr>
             </thead>
             <tbody>
-              {tableRows.map((row) => (
-                <tr
-                  key={row.id}
-                  onClick={() => handleRowClick(row.fullEvent)}
-                  className={cn(
-                    "border-b hover:bg-muted/50 cursor-pointer transition-colors",
-                    row.isSelected && "bg-primary/10 border-primary/30"
-                  )}
-                >
-                  <td className="p-2">
-                    <div className="flex items-center justify-start pl-2">
-                      <ProviderIcon 
-                        provider={row.fullEvent.provider}
-                        iconUrl={row.fullEvent.providerIcon}
-                        className="w-6 h-6"
-                      />
-                    </div>
-                  </td>
-                  <td className="p-2">
-                    <div className="text-sm font-medium text-foreground truncate">
-                      {row.eventName}
-                    </div>
-                  </td>
-                  <td className="p-2">
-                    {renderAccountId(row.accountId)}
-                  </td>
-                </tr>
-              ))}
+              {tableRows.map((row) => {
+                // Special rendering for navigation events
+                if (row.isNavigationEvent) {
+                  return (
+                    <tr key={row.id} className="border-b">
+                      <td colSpan={3} className="p-0">
+                        <div className="flex items-center gap-2 sm:gap-3 px-3 sm:px-4 py-2 sm:py-3 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-950/30 dark:to-indigo-950/30 border-l-4 border-blue-400 dark:border-blue-600">
+                          <Navigation className="w-3 h-3 sm:w-4 sm:h-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                          <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-2 flex-1 min-w-0">
+                            <Tooltip 
+                              content={`Page: ${row.fullEvent.parameters?.title || 'Unknown Page'}\nURL: ${row.fullEvent.parameters?.toUrl || row.fullEvent.url}`}
+                              delay={500}
+                            >
+                              <span className="text-xs sm:text-sm font-medium text-blue-900 dark:text-blue-100 cursor-help">
+                                Page Navigation
+                              </span>
+                            </Tooltip>
+                            <ArrowRight className="hidden sm:block w-3 h-3 text-blue-500 shrink-0" />
+                          </div>
+                          <span className="text-[10px] sm:text-xs text-blue-600 dark:text-blue-400 font-medium shrink-0">
+                            {new Date(row.fullEvent.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                          </span>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                }
+
+                // Regular event row
+                return (
+                  <tr
+                    key={row.id}
+                    onClick={() => handleRowClick(row.fullEvent)}
+                    className={cn(
+                      "border-b hover:bg-muted/50 cursor-pointer transition-colors",
+                      row.isSelected && "bg-primary/10 border-primary/30"
+                    )}
+                  >
+                    <td className="p-2">
+                      <div className="flex items-center justify-start pl-2">
+                        <ProviderIcon 
+                          provider={row.fullEvent.provider}
+                          iconUrl={row.fullEvent.providerIcon}
+                          className="w-6 h-6"
+                        />
+                      </div>
+                    </td>
+                    <td className="p-2">
+                      <div className="text-sm font-medium text-foreground truncate">
+                        {row.eventName}
+                      </div>
+                    </td>
+                    <td className="p-2">
+                      {renderAccountId(row.accountId)}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

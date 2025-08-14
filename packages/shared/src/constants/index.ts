@@ -40,7 +40,8 @@ export const DEFAULT_UI_SETTINGS = {
   compactMode: false,
   showTimestamps: true,
   groupSimilarEvents: false,
-  highlightNewEvents: true
+  highlightNewEvents: true,
+  persistEventsAcrossPages: true
 };
 
 // Default performance settings

@@ -353,10 +353,45 @@ chrome.tabs.onActivated.addListener(async (_activeInfo) => {
   }
 });
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url && trackingState.has(tabId)) {
-    // Clear events if persistence is disabled
-    if (!persistEventsAcrossPages) {
+    // If persistence is enabled, add a navigation separator event
+    if (persistEventsAcrossPages) {
+      const existingEvents = tabEvents.get(tabId);
+      // Only add navigation event if there are existing events (not the first page load)
+      if (existingEvents && existingEvents.length > 0) {
+        const navigationEvent: TrackingEvent = {
+          id: `nav-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          timestamp: Date.now(),
+          provider: 'navigation',
+          providerName: 'Page Navigation',
+          url: changeInfo.url,
+          method: 'NAVIGATE',
+          eventType: 'navigation',
+          parameters: {
+            fromUrl: existingEvents.length > 0 ? existingEvents[0].url : 'unknown',
+            toUrl: changeInfo.url,
+            title: tab?.title || 'Unknown Page'
+          },
+          confidence: 1.0,
+          tabId: tabId,
+          isNavigationEvent: true
+        };
+        
+        // Insert navigation event at the beginning (most recent)
+        tabEvents.set(tabId, [navigationEvent, ...existingEvents]);
+        
+        // Notify UI about the navigation event
+        if (sidePanelOpenForTab.has(tabId)) {
+          chrome.runtime.sendMessage({
+            type: 'NEW_TRACKING_EVENT',
+            event: navigationEvent,
+            tabId: tabId
+          });
+        }
+      }
+    } else {
+      // Clear events if persistence is disabled
       const existingEvents = tabEvents.get(tabId);
       if (existingEvents && existingEvents.length > 0) {
         tabEvents.set(tabId, []);

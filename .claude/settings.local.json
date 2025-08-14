@@ -49,7 +49,8 @@
       "Bash(pnpm --filter @pixeltracer/shared run build)",
       "Bash(pnpm --filter @pixeltracer/core run build)",
       "Bash(pnpm --filter @pixeltracer/providers run build)",
-      "Bash(pnpm --filter @pixeltracer/ui run build)"
+      "Bash(pnpm --filter @pixeltracer/ui run build)",
+      "Bash(pnpm --filter @pixeltracer/shared build)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"
