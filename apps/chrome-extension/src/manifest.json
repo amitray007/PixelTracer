@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "PixelTracer",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Privacy-focused real-time monitoring and analysis of web analytics and marketing tracking requests",
   "permissions": [
     "tabs",

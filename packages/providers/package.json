@@ -1,6 +1,6 @@
 {
   "name": "@pixeltracer/providers",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Provider plugins for tracking services (Facebook, Google, TikTok, etc.)",
   "type": "module",
   "main": "dist/index.js",

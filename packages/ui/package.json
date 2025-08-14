@@ -1,6 +1,6 @@
 {
   "name": "@pixeltracer/ui",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "React UI components and design system for PixelTracer",
   "type": "module",
   "main": "dist/index.js",

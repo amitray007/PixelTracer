@@ -1,6 +1,6 @@
 {
   "name": "pixeltracer",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "description": "Privacy-focused Chrome extension for real-time monitoring and analysis of web analytics and marketing tracking requests",
   "type": "module",
   "private": true,
