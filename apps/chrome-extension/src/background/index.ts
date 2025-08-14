@@ -21,6 +21,9 @@ const trackingState: Map<number, boolean> = new Map(); // Per-tab tracking state
 const processedRequests: Map<string, number> = new Map(); // Request deduplication
 const sidePanelOpenForTab: Map<number, boolean> = new Map(); // Track which tabs have side panel open
 
+// Persistence setting
+let persistEventsAcrossPages = true; // Default to true
+
 // Health monitoring
 let lastRequestTime = Date.now();
 let healthCheckInterval: number | null = null;
@@ -89,6 +92,23 @@ async function initializeEngine(): Promise<void> {
     // Initialize performance monitor
     performanceMonitor = new PerformanceMonitor();
     performanceMonitor.startMonitoring(10000); // Monitor every 10 seconds
+    
+    // Load persistence setting
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+      try {
+        chrome.storage.sync.get(['persistEventsAcrossPages'], (result) => {
+          if (chrome.runtime.lastError) {
+            console.warn('Failed to load persistence setting:', chrome.runtime.lastError);
+            return;
+          }
+          if (result.persistEventsAcrossPages !== undefined) {
+            persistEventsAcrossPages = result.persistEventsAcrossPages;
+          }
+        });
+      } catch (error) {
+        console.warn('Chrome storage not available:', error);
+      }
+    }
     
   } catch (error) {
     providersInitialized = false;
@@ -335,11 +355,15 @@ chrome.tabs.onActivated.addListener(async (_activeInfo) => {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, _tab) => {
   if (changeInfo.url && trackingState.has(tabId)) {
-    const existingEvents = tabEvents.get(tabId);
-    if (existingEvents && existingEvents.length > 0) {
-      tabEvents.set(tabId, []);
+    // Clear events if persistence is disabled
+    if (!persistEventsAcrossPages) {
+      const existingEvents = tabEvents.get(tabId);
+      if (existingEvents && existingEvents.length > 0) {
+        tabEvents.set(tabId, []);
+      }
     }
     
+    // Always clear request deduplication cache for new page
     const keysToDelete: string[] = [];
     for (const key of processedRequests.keys()) {
       if (key.startsWith(`${tabId}-`)) {
@@ -401,6 +425,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         tabEvents.delete(clearTabId);
       }
       sendResponse({ success: true });
+      break;
+      
+    case 'SET_PERSISTENCE':
+      if (message.payload && message.payload.persistEventsAcrossPages !== undefined) {
+        persistEventsAcrossPages = message.payload.persistEventsAcrossPages;
+        // Save to storage
+        if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+          try {
+            chrome.storage.sync.set({ persistEventsAcrossPages }, () => {
+              if (chrome.runtime.lastError) {
+                console.warn('Failed to save persistence setting:', chrome.runtime.lastError);
+              }
+            });
+          } catch (error) {
+            console.warn('Chrome storage not available:', error);
+          }
+        }
+      }
+      sendResponse({ success: true });
+      break;
+      
+    case 'GET_PERSISTENCE':
+      sendResponse({ persistEventsAcrossPages });
       break;
       
     case 'FILTER_EVENTS':

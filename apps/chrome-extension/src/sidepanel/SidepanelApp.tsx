@@ -27,6 +27,7 @@ export function SidepanelApp() {
   const [currentTabId, setCurrentTabId] = useState<number | undefined>();
   const [activeTab, setActiveTab] = useState<chrome.tabs.Tab | undefined>();
   const [hasStartedTracking, setHasStartedTracking] = useState<boolean>(false);
+  const [persistEventsAcrossPages, setPersistEventsAcrossPages] = useState<boolean>(true);
 
   // Function to load events for a specific tab
   const loadTabData = useCallback((tab: chrome.tabs.Tab, startTracking: boolean = false) => {
@@ -144,6 +145,52 @@ export function SidepanelApp() {
       chrome.runtime.onMessage.removeListener(handleMessage);
     };
   }, [currentTabId]);
+
+  // Load persistence setting on startup
+  useEffect(() => {
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+      try {
+        chrome.storage.sync.get(['persistEventsAcrossPages'], (result) => {
+          if (chrome.runtime.lastError) {
+            console.warn('Failed to load persistence setting:', chrome.runtime.lastError);
+            return;
+          }
+          if (result.persistEventsAcrossPages !== undefined) {
+            setPersistEventsAcrossPages(result.persistEventsAcrossPages);
+          }
+        });
+      } catch (error) {
+        console.warn('Chrome storage not available:', error);
+      }
+    }
+  }, []);
+
+  // Handle persistence toggle
+  const handleTogglePersistence = useCallback(() => {
+    const newValue = !persistEventsAcrossPages;
+    setPersistEventsAcrossPages(newValue);
+    
+    // Save to storage
+    if (typeof chrome !== 'undefined' && chrome.storage && chrome.storage.sync) {
+      try {
+        chrome.storage.sync.set({ persistEventsAcrossPages: newValue }, () => {
+          if (chrome.runtime.lastError) {
+            console.warn('Failed to save persistence setting:', chrome.runtime.lastError);
+          }
+        });
+      } catch (error) {
+        console.warn('Chrome storage not available:', error);
+      }
+    }
+    
+    // Notify background script
+    if (typeof chrome !== 'undefined' && chrome.runtime && chrome.runtime.sendMessage) {
+      chrome.runtime.sendMessage({
+        type: 'SET_PERSISTENCE',
+        payload: { persistEventsAcrossPages: newValue }
+      });
+    }
+  }, [persistEventsAcrossPages]);
 
   const clearEvents = useCallback(() => {
     setState(prev => ({ ...prev, events: [] }));
@@ -276,9 +323,11 @@ export function SidepanelApp() {
       events={state.events}
       selectedEvent={state.selectedEvent}
       isTracking={state.isTracking}
+      persistEventsAcrossPages={persistEventsAcrossPages}
       currentTab={state.currentTab}
       onEventSelect={selectEvent}
       onToggleTracking={toggleTracking}
+      onTogglePersistence={handleTogglePersistence}
       onClearEvents={clearEvents}
       onExportData={handleExportData}
       onApplyFilters={handleApplyFilters}

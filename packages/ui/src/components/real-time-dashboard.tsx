@@ -32,7 +32,9 @@ import {
   ArrowUpDown,
   Moon,
   Sun,
-  Check
+  Check,
+  History,
+  RotateCcw
 } from "lucide-react"
 
 export interface ProviderStats {
@@ -56,9 +58,11 @@ export interface RealTimeDashboardProps {
   events: TrackingEvent[]
   selectedEvent?: TrackingEvent
   isTracking: boolean
+  persistEventsAcrossPages?: boolean
   currentTab?: chrome.tabs.Tab
   onEventSelect: (event: TrackingEvent) => void
   onToggleTracking: () => void
+  onTogglePersistence?: () => void
   onClearEvents: () => void
   onExportData: () => void
   onApplyFilters: (filters: any) => void
@@ -71,9 +75,11 @@ const RealTimeDashboard = React.forwardRef<HTMLDivElement, RealTimeDashboardProp
     events = [],
     selectedEvent,
     isTracking,
+    persistEventsAcrossPages = true,
     currentTab,
     onEventSelect,
     onToggleTracking,
+    onTogglePersistence,
     onClearEvents,
     onExportData,
     onApplyFilters,
@@ -222,6 +228,30 @@ const RealTimeDashboard = React.forwardRef<HTMLDivElement, RealTimeDashboardProp
                 <Trash2 className="w-4 h-4" />
                 <span className="sr-only">Clear Events</span>
               </Button>
+              
+              {onTogglePersistence && (
+                <Button 
+                  variant={persistEventsAcrossPages ? "default" : "outline"} 
+                  size="sm" 
+                  onClick={onTogglePersistence}
+                  className={cn(
+                    "h-9 w-9 p-0 border-2 transition-all duration-200",
+                    persistEventsAcrossPages 
+                      ? "bg-blue-600 hover:bg-blue-700 border-blue-600 text-white shadow-sm" 
+                      : "border-border/60 hover:border-blue-400 hover:bg-blue-50 hover:text-blue-600 dark:hover:bg-blue-900/20 dark:hover:text-blue-400"
+                  )}
+                  title={persistEventsAcrossPages ? "Events persist across page navigation (History mode)" : "Events cleared on page navigation (Reset mode)"}
+                >
+                  {persistEventsAcrossPages ? (
+                    <History className="w-4 h-4" />
+                  ) : (
+                    <RotateCcw className="w-4 h-4" />
+                  )}
+                  <span className="sr-only">
+                    {persistEventsAcrossPages ? 'Disable history mode' : 'Enable history mode'}
+                  </span>
+                </Button>
+              )}
               
               <Button
                 variant={isTracking ? "secondary" : "default"}

@@ -188,6 +188,8 @@ export enum MessageType {
   // Settings
   UPDATE_SETTINGS = 'update_settings',
   GET_SETTINGS = 'get_settings',
+  SET_PERSISTENCE = 'set_persistence',
+  GET_PERSISTENCE = 'get_persistence',
   
   // Performance
   GET_STATS = 'get_stats',
@@ -209,6 +211,7 @@ export interface UISettings {
   showTimestamps: boolean;
   groupSimilarEvents: boolean;
   highlightNewEvents: boolean;
+  persistEventsAcrossPages: boolean;
 }
 
 export interface PerformanceSettings {
